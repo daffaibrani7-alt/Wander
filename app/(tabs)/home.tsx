@@ -100,6 +100,16 @@ export default function HomeMapScreen() {
     return () => unsubscribe();
   }, []);
 
+  // Kamera otomatis mengikuti pergerakan teman terpilih secara halus (real-time camera follow)
+  useEffect(() => {
+    if (selectedFriend && selectedFriend.latitude && selectedFriend.longitude) {
+      mapRef.current?.flyTo(
+        { latitude: selectedFriend.latitude, longitude: selectedFriend.longitude },
+        15
+      );
+    }
+  }, [selectedFriend?.latitude, selectedFriend?.longitude]);
+
   // Animations
   const alertAnim = useRef(new Animated.Value(-150)).current;
   const slideAnim = useRef(new Animated.Value(height)).current;
