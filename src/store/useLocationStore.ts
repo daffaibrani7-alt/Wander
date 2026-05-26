@@ -58,6 +58,36 @@ function formatTimeAgo(isoString: string): string {
   }
 }
 
+// Helper: Analyze presence/activity state (Zenly Smart Activity Analyzer)
+function analyzeActivity(
+  speed: number | null,
+  isCharging: boolean,
+  updatedAtIso: string,
+  batteryLevel: number
+): "online" | "idle" | "driving" | "sleeping" {
+  // Speed is usually from expo-location, in meters per second (m/s).
+  // 15 km/h is approx 4.17 m/s.
+  if (speed !== null && speed > 4.17) {
+    return "driving";
+  }
+
+  const date = new Date(updatedAtIso);
+  const hour = date.getHours();
+
+  // Sleeping mode: Night time (11 PM to 6 AM) AND charging
+  const isNight = hour >= 23 || hour < 6;
+  if (isNight && isCharging) {
+    return "sleeping";
+  }
+
+  // Idle: if speed is exactly 0
+  if (speed !== null && speed === 0) {
+    return "idle";
+  }
+
+  return "online";
+}
+
 // Helper: Determine optimized foreground options according to battery health
 function getForegroundOptions(batteryLevel: number, isCharging: boolean, lowPowerMode: boolean) {
   // Low battery (< 15% and not plugged in) or low power mode enabled: Every 30s / 30m, lower accuracy
@@ -361,10 +391,14 @@ export const useLocationStore = create<LocationState>((set, get) => {
       }
 
       try {
-        const userDocRef = doc(db, "users", currentUser.uid);
+        const locationDocRef = doc(db, "locations", currentUser.uid);
+        const nowStr = new Date().toISOString();
+        const activity = analyzeActivity(coords.speed ?? null, isCharging, nowStr, batteryLevel);
+
         await setDoc(
-          userDocRef,
+          locationDocRef,
           {
+            uid: currentUser.uid,
             latitude: finalCoords.latitude,
             longitude: finalCoords.longitude,
             heading: coords.heading ?? null,
@@ -373,7 +407,8 @@ export const useLocationStore = create<LocationState>((set, get) => {
             isCharging,
             ghostMode,
             lastSeen: serverTimestamp(),
-            updatedAt: new Date().toISOString(),
+            updatedAt: nowStr,
+            activity,
           },
           { merge: true }
         );
@@ -418,16 +453,20 @@ export const useLocationStore = create<LocationState>((set, get) => {
                 ? calculateDistance(currentLat, currentLng, data.latitude, data.longitude)
                 : 0;
 
+            // Merge with cached static profile fields from useFriendStore
+            const friendProfile = useFriendStore.getState().friends.find((f) => f.uid === data.uid);
+
             realFriends.push({
               uid: data.uid,
-              displayName: data.displayName || "Wanderer",
-              avatarUrl: data.photoURL || "",
-              avatarEmoji: data.avatarEmoji || "🦊",
+              displayName: friendProfile?.displayName || "Wanderer",
+              avatarUrl: friendProfile?.photoURL || "",
+              avatarEmoji: friendProfile?.avatarEmoji || "🦊",
               latitude: data.latitude,
               longitude: data.longitude,
               batteryLevel: data.batteryLevel !== undefined ? data.batteryLevel : 100,
               isCharging: !!data.isCharging,
               ghostMode: data.ghostMode || "precise",
+              activity: data.activity || "online",
               distanceText:
                 distance < 1
                   ? `${Math.round(distance * 1000)} m`
@@ -464,8 +503,8 @@ export const useLocationStore = create<LocationState>((set, get) => {
 
         // Limit to 30 friends per query to avoid Firestore IN limits
         const chunkedUids = friendUids.slice(0, 30);
-        const usersCollection = collection(db, "users");
-        const q = query(usersCollection, where("uid", "in", chunkedUids));
+        const locationsCollection = collection(db, "locations");
+        const q = query(locationsCollection, where("uid", "in", chunkedUids));
 
         currentUnsubscribe = onSnapshot(q, handleSnapshot, (err) => {
           console.error("Firestore listenToFriends error:", err);

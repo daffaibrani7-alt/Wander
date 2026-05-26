@@ -1,7 +1,7 @@
 import * as Location from "expo-location";
 import * as Battery from "expo-battery";
 import * as TaskManager from "expo-task-manager";
-import { doc, updateDoc, serverTimestamp } from "firebase/firestore";
+import { doc, setDoc, serverTimestamp } from "firebase/firestore";
 import { db, auth, isFirebaseConfigured } from "../config/firebase";
 
 export const LOCATION_TASK_NAME = "background-location-task";
@@ -92,7 +92,7 @@ try {
         const currentUser = auth?.currentUser;
         if (currentUser && isFirebaseConfigured && db) {
           try {
-            const userDocRef = doc(db, "users", currentUser.uid);
+            const locationDocRef = doc(db, "locations", currentUser.uid);
 
             // Dapatkan level baterai saat ini jika memungkinkan secara async di background
             let batteryLevel = 100;
@@ -108,7 +108,21 @@ try {
               // Abaikan jika tidak didukung di simulator/background OS
             }
 
-            await updateDoc(userDocRef, {
+            const nowStr = new Date().toISOString();
+            const hour = new Date().getHours();
+            
+            // Zenly Smart Activity Analyzer for background updates
+            let activity: "online" | "idle" | "driving" | "sleeping" = "online";
+            if (speed !== null && speed > 4.17) {
+              activity = "driving";
+            } else if ((hour >= 23 || hour < 6) && isCharging) {
+              activity = "sleeping";
+            } else if (speed !== null && speed === 0) {
+              activity = "idle";
+            }
+
+            await setDoc(locationDocRef, {
+              uid: currentUser.uid,
               latitude,
               longitude,
               heading: heading ?? null,
@@ -116,8 +130,9 @@ try {
               batteryLevel,
               isCharging,
               lastSeen: serverTimestamp(),
-              updatedAt: new Date().toISOString(),
-            });
+              updatedAt: nowStr,
+              activity,
+            }, { merge: true });
           } catch (err) {
             console.error(
               "Gagal sinkronisasi background location ke Firestore:",
