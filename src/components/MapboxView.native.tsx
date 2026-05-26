@@ -3,7 +3,7 @@
  * Full @rnmapbox/maps integration dengan graceful fallback saat Mapbox belum dikonfigurasi.
  */
 import React, { useRef, useEffect, forwardRef, useImperativeHandle } from "react";
-import { View, StyleSheet, Animated, Easing } from "react-native";
+import { View, StyleSheet, Animated, Easing, UIManager } from "react-native";
 import Reanimated, { useSharedValue, withSpring, useAnimatedProps } from "react-native-reanimated";
 import MapView, { Marker as RNMarker } from "react-native-maps";
 import Constants, { ExecutionEnvironment } from "expo-constants";
@@ -81,15 +81,26 @@ const isExpoGo =
 const MAPBOX_TOKEN = "pk.eyJ1IjoiZGFmZmFpYnJhbmk3IiwiYSI6ImNtYjVvZ3FxaTBoaHkyanF4eDZ5M2xia3QifQ.PLACEHOLDER_PUBLIC_TOKEN";
 const isPlaceholderToken = MAPBOX_TOKEN.includes("PLACEHOLDER");
 
-// Force fallback to react-native-maps if running in Expo Go or if a real Mapbox token isn't configured yet
-const isMapboxAvailable = !!NativeMapView && !isExpoGo && !isPlaceholderToken;
+// Bulletproof check: Query the native runtime directly to see if the Mapbox view manager is registered
+const isMapboxNativeRegistered = !!(
+  UIManager &&
+  UIManager.getViewManagerConfig &&
+  (UIManager.getViewManagerConfig("RNMBXMapView") ||
+   UIManager.getViewManagerConfig("RCTMGLMapView"))
+);
+
+// Force fallback to react-native-maps if native code is missing, in Expo Go, or if a real Mapbox token is missing
+const isMapboxAvailable = !!NativeMapView && isMapboxNativeRegistered && !isExpoGo && !isPlaceholderToken;
 
 console.log(
-  "[Wander MapboxView] Initialization Details:",
-  `\n - Native SDK Loaded: ${!!NativeMapView}`,
-  `\n - Expo Go Environment: ${isExpoGo}`,
-  `\n - Token is Placeholder: ${isPlaceholderToken}`,
-  `\n -> Target Renderer: ${isMapboxAvailable ? "Native Mapbox SDK" : "react-native-maps Fallback"}`
+  "\n=======================================================",
+  "\n📍 [Wander MapboxView] DIAGNOSTIC SYSTEM:",
+  `\n - Native Mapbox SDK imported: ${!!NativeMapView}`,
+  `\n - Native Mapbox view manager registered in binary: ${isMapboxNativeRegistered}`,
+  `\n - Running in Expo Go environment: ${isExpoGo}`,
+  `\n - Mapbox Access Token is placeholder: ${isPlaceholderToken}`,
+  `\n -> SELECTED MAP RENDERER: ${isMapboxAvailable ? "Native Mapbox SDK (Premium)" : "react-native-maps Fallback (Google/Apple Maps)"}`,
+  "\n=======================================================\n"
 );
 
 function AnimatedRadarFriend({
