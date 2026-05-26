@@ -1,10 +1,11 @@
 import { create } from "zustand";
 import * as Location from "expo-location";
 import * as Battery from "expo-battery";
-import { doc, collection, onSnapshot, setDoc, serverTimestamp } from "firebase/firestore";
+import { doc, collection, onSnapshot, setDoc, serverTimestamp, query, where } from "firebase/firestore";
 import { db, auth, isFirebaseConfigured } from "../config/firebase";
 import { getTrackingOptions, LOCATION_TASK_NAME } from "../services/locationService";
 import { MockService, FriendLocation } from "../services/mockService";
+import { useFriendStore } from "./useFriendStore";
 
 interface LocationState {
   location: Location.LocationObjectCoords | null;
@@ -22,14 +23,14 @@ interface LocationState {
   startTracking: () => Promise<void>;
   stopTracking: () => void;
   setGhostMode: (mode: "precise" | "blurry" | "frozen") => void;
-  syncLocationToFirestore: (coords: Location.LocationObjectCoords) => Promise<void>;
+  syncLocationToFirestore: (coords: Location.LocationObjectCoords, force?: boolean) => Promise<void>;
   listenToFriends: () => () => void;
   adjustTrackingParameters: () => Promise<void>;
 }
 
-// Helper: Hitung jarak dalam km
+// Helper: Calculate distance in km
 function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R = 6371; // Radius bumi dalam km
+  const R = 6371; // Earth radius in km
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
   const dLon = ((lon2 - lon1) * Math.PI) / 180;
   const a =
@@ -42,7 +43,7 @@ function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: numbe
   return R * c;
 }
 
-// Helper: Format waktu lampau
+// Helper: Format relative time
 function formatTimeAgo(isoString: string): string {
   try {
     const diffMs = Date.now() - new Date(isoString).getTime();
@@ -57,11 +58,44 @@ function formatTimeAgo(isoString: string): string {
   }
 }
 
+// Helper: Determine optimized foreground options according to battery health
+function getForegroundOptions(batteryLevel: number, isCharging: boolean, lowPowerMode: boolean) {
+  // Low battery (< 15% and not plugged in) or low power mode enabled: Every 30s / 30m, lower accuracy
+  if ((batteryLevel < 15 && !isCharging) || lowPowerMode) {
+    return {
+      accuracy: Location.Accuracy.Balanced,
+      timeInterval: 30000,
+      distanceInterval: 30,
+    };
+  }
+  // Medium battery (< 40% and not plugged in): Every 15s / 15m, balanced accuracy
+  if (batteryLevel < 40 && !isCharging) {
+    return {
+      accuracy: Location.Accuracy.Balanced,
+      timeInterval: 15000,
+      distanceInterval: 15,
+    };
+  }
+  // Healthy battery (> 40% or plugged in): Every 5s / 5m, high accuracy
+  return {
+    accuracy: Location.Accuracy.High,
+    timeInterval: 5000,
+    distanceInterval: 5,
+  };
+}
+
 export const useLocationStore = create<LocationState>((set, get) => {
   let fgSubscription: Location.LocationSubscription | null = null;
   let batLevelSub: any = null;
   let batStateSub: any = null;
   let powerModeSub: any = null;
+
+  // Persisted state to throttle database writes for cost efficiency
+  let lastSyncTime = 0;
+  let lastSyncCoords: { latitude: number; longitude: number } | null = null;
+  let lastSyncBattery: number | null = null;
+  let lastSyncCharging: boolean | null = null;
+  let lastSyncGhostMode: string | null = null;
 
   return {
     location: null,
@@ -79,7 +113,7 @@ export const useLocationStore = create<LocationState>((set, get) => {
       if (get().trackingActive) return;
 
       try {
-        // 1. Dapatkan info awal baterai
+        // 1. Initial battery query
         let batteryLevel = 100;
         let isCharging = false;
         let lowPowerMode = false;
@@ -92,16 +126,16 @@ export const useLocationStore = create<LocationState>((set, get) => {
             state === Battery.BatteryState.FULL;
           lowPowerMode = await Battery.isLowPowerModeEnabledAsync();
         } catch {
-          // Baterai tidak disupport (misal web/simulator)
+          // Simulator / Web bypass
         }
 
         set({ batteryLevel, isCharging, lowPowerMode, trackingActive: true });
 
-        // 2. Minta Foreground Permission
+        // 2. Request Foreground GPS Permission
         const { status: fgStatus } = await Location.requestForegroundPermissionsAsync();
         if (fgStatus !== "granted") {
           set({ errorMsg: "Izin akses lokasi ditolak." });
-          // Fallback koordinat Jakarta untuk simulator
+          // Fallback coordinates for simulator
           set({
             location: {
               latitude: -6.2088,
@@ -116,35 +150,28 @@ export const useLocationStore = create<LocationState>((set, get) => {
           return;
         }
 
-        // Dapatkan lokasi awal dengan cepat
+        // Get initial location quickly
         const initial = await Location.getCurrentPositionAsync({
           accuracy: Location.Accuracy.Balanced,
         });
         set({ location: initial.coords });
-        await get().syncLocationToFirestore(initial.coords);
+        await get().syncLocationToFirestore(initial.coords, true);
 
-        // Langganan updates posisi di Foreground (setiap 5s / 5m default)
+        // Start Optimized Foreground Watcher
+        const fgOptions = getForegroundOptions(batteryLevel, isCharging, lowPowerMode);
         fgSubscription = await Location.watchPositionAsync(
-          {
-            accuracy: Location.Accuracy.High,
-            timeInterval: 5000,
-            distanceInterval: 5,
-          },
+          fgOptions,
           async (newLocation) => {
             set({ location: newLocation.coords });
             await get().syncLocationToFirestore(newLocation.coords);
           }
         );
 
-        // 3. Minta Background Permission & jalankan task (jika didukung)
+        // 3. Background location updates
         try {
           const { status: bgStatus } = await Location.requestBackgroundPermissionsAsync();
           if (bgStatus === "granted") {
-            const options = getTrackingOptions(
-              get().batteryLevel,
-              get().isCharging,
-              get().lowPowerMode
-            );
+            const options = getTrackingOptions(batteryLevel, isCharging, lowPowerMode);
             await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME, options);
             console.log("🏃 Background location tracking berhasil diaktifkan!");
           }
@@ -152,7 +179,7 @@ export const useLocationStore = create<LocationState>((set, get) => {
           console.log("Info: Background location tidak disupport pada platform ini (misal web/Expo Go).");
         }
 
-        // 4. Daftarkan event listener baterai untuk optimasi dinamis
+        // 4. Register battery optimization listeners
         try {
           batLevelSub = Battery.addBatteryLevelListener(async ({ batteryLevel }) => {
             const levelPercent = Math.round(batteryLevel * 100);
@@ -173,7 +200,7 @@ export const useLocationStore = create<LocationState>((set, get) => {
             await get().adjustTrackingParameters();
           });
         } catch {
-          // Event baterai tidak disupport
+          // Low battery modes not supported
         }
       } catch (error: any) {
         console.error("Gagal memulai pelacakan lokasi:", error);
@@ -215,6 +242,22 @@ export const useLocationStore = create<LocationState>((set, get) => {
       if (!trackingActive) return;
 
       try {
+        // Update Foreground Watcher dynamically to optimize battery life
+        if (fgSubscription) {
+          fgSubscription.remove();
+          fgSubscription = null;
+        }
+
+        const fgOptions = getForegroundOptions(batteryLevel, isCharging, lowPowerMode);
+        fgSubscription = await Location.watchPositionAsync(
+          fgOptions,
+          async (newLocation) => {
+            set({ location: newLocation.coords });
+            await get().syncLocationToFirestore(newLocation.coords);
+          }
+        );
+
+        // Adjust background parameter throttling
         const isBgActive = await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME);
         if (isBgActive) {
           const options = getTrackingOptions(batteryLevel, isCharging, lowPowerMode);
@@ -224,7 +267,7 @@ export const useLocationStore = create<LocationState>((set, get) => {
           );
         }
       } catch {
-        // Platform tidak mendukung background tracking
+        // Dynamic throttling not supported
       }
     },
 
@@ -232,12 +275,14 @@ export const useLocationStore = create<LocationState>((set, get) => {
       const { location } = get();
       set({ ghostMode: mode });
 
-      if (mode === "frozen" && location) {
+      if (mode === "precise") {
+        set({ frozenLocation: null, blurryLocation: null });
+      } else if (mode === "frozen" && location) {
         set({ frozenLocation: location });
       } else if (mode === "blurry" && location) {
-        // Bikin koordinat buram awal (+- 800m ke 1.5km)
-        const randomOffsetLat = (Math.random() > 0.5 ? 1 : -1) * (0.007 + Math.random() * 0.007);
-        const randomOffsetLng = (Math.random() > 0.5 ? 1 : -1) * (0.007 + Math.random() * 0.007);
+        // Generate a stable blurry location offset once to prevent dynamic jittering/shaking
+        const randomOffsetLat = (Math.random() > 0.5 ? 1 : -1) * (0.006 + Math.random() * 0.006);
+        const randomOffsetLng = (Math.random() > 0.5 ? 1 : -1) * (0.006 + Math.random() * 0.006);
         set({
           blurryLocation: {
             ...location,
@@ -247,19 +292,51 @@ export const useLocationStore = create<LocationState>((set, get) => {
         });
       }
 
-      // Sync koordinat baru ke database langsung setelah ganti ghost mode
+      // Sync changes to Firestore immediately with force=true
       if (location) {
-        get().syncLocationToFirestore(location);
+        get().syncLocationToFirestore(location, true);
       }
     },
 
-    syncLocationToFirestore: async (coords) => {
+    syncLocationToFirestore: async (coords, force = false) => {
       const { ghostMode, frozenLocation, blurryLocation, batteryLevel, isCharging } = get();
       const currentUser = auth?.currentUser;
 
       if (!currentUser || !isFirebaseConfigured || !db) return;
 
-      // Pilih koordinat final berdasarkan Ghost Mode
+      const now = Date.now();
+
+      // Database writing throttle logic
+      if (!force) {
+        const timePassed = now - lastSyncTime;
+        const locationMoved = lastSyncCoords
+          ? calculateDistance(lastSyncCoords.latitude, lastSyncCoords.longitude, coords.latitude, coords.longitude) * 1000 // in meters
+          : Infinity;
+
+        const batteryChanged = lastSyncBattery !== batteryLevel;
+        const chargingChanged = lastSyncCharging !== isCharging;
+        const ghostModeChanged = lastSyncGhostMode !== ghostMode;
+
+        // Skip writing to database if no significant coordinates/state changes occurred under 10 seconds
+        if (
+          timePassed < 10000 &&
+          locationMoved < 5 &&
+          !batteryChanged &&
+          !chargingChanged &&
+          !ghostModeChanged
+        ) {
+          return;
+        }
+      }
+
+      // Record last sync status
+      lastSyncTime = now;
+      lastSyncCoords = { latitude: coords.latitude, longitude: coords.longitude };
+      lastSyncBattery = batteryLevel;
+      lastSyncCharging = isCharging;
+      lastSyncGhostMode = ghostMode;
+
+      // Select final coordinates based on Ghost Mode
       let finalCoords = { ...coords };
       if (ghostMode === "frozen") {
         if (frozenLocation) {
@@ -271,8 +348,8 @@ export const useLocationStore = create<LocationState>((set, get) => {
         if (blurryLocation) {
           finalCoords = { ...blurryLocation };
         } else {
-          const randomOffsetLat = (Math.random() > 0.5 ? 1 : -1) * (0.007 + Math.random() * 0.007);
-          const randomOffsetLng = (Math.random() > 0.5 ? 1 : -1) * (0.007 + Math.random() * 0.007);
+          const randomOffsetLat = (Math.random() > 0.5 ? 1 : -1) * (0.006 + Math.random() * 0.006);
+          const randomOffsetLng = (Math.random() > 0.5 ? 1 : -1) * (0.006 + Math.random() * 0.006);
           const newBlur = {
             ...coords,
             latitude: coords.latitude + randomOffsetLat,
@@ -306,20 +383,39 @@ export const useLocationStore = create<LocationState>((set, get) => {
     },
 
     listenToFriends: () => {
+      const myLat = get().location?.latitude;
+      const myLng = get().location?.longitude;
+
+      if (!isFirebaseConfigured || !db) {
+        // Offline / Simulation mode
+        set({ friends: MockService.getFriends(myLat, myLng) });
+
+        const interval = setInterval(() => {
+          const lat = get().location?.latitude;
+          const lng = get().location?.longitude;
+          set({ friends: MockService.getFriends(lat, lng) });
+        }, 4000);
+
+        return () => clearInterval(interval);
+      }
+
+      // Realtime Firebase mode with Friend-Only Realtime Listener (extremely scalable)
+      let currentUnsubscribe: (() => void) | null = null;
+      let prevUidsString = "";
+
       const handleSnapshot = (snapshot: any) => {
         const currentUser = auth?.currentUser;
-        const myLat = get().location?.latitude;
-        const myLng = get().location?.longitude;
+        const currentLat = get().location?.latitude;
+        const currentLng = get().location?.longitude;
 
         const realFriends: FriendLocation[] = [];
         snapshot.forEach((docSnap: any) => {
           const data = docSnap.data();
 
-          // Saring diri sendiri dan pastikan punya koordinat valid
           if (data.uid !== currentUser?.uid && data.latitude && data.longitude) {
             const distance =
-              myLat && myLng
-                ? calculateDistance(myLat, myLng, data.latitude, data.longitude)
+              currentLat && currentLng
+                ? calculateDistance(currentLat, currentLng, data.latitude, data.longitude)
                 : 0;
 
             realFriends.push({
@@ -344,33 +440,59 @@ export const useLocationStore = create<LocationState>((set, get) => {
           }
         });
 
-        // Tetap ambil simulated friends agar map ramai terisi
-        const mockFriends = MockService.getFriends(myLat, myLng).filter(
+        // Always merge mock friends so the map has content for testing
+        const mockFriends = MockService.getFriends(currentLat, currentLng).filter(
           (m) => !realFriends.some((r) => r.uid === m.uid)
         );
 
         set({ friends: [...realFriends, ...mockFriends] });
       };
 
-      if (!isFirebaseConfigured || !db) {
-        // Offline / Simulation mode
-        const myLat = get().location?.latitude;
-        const myLng = get().location?.longitude;
-        set({ friends: MockService.getFriends(myLat, myLng) });
+      const setupQueryListener = (friendUids: string[]) => {
+        if (currentUnsubscribe) {
+          currentUnsubscribe();
+          currentUnsubscribe = null;
+        }
 
-        const interval = setInterval(() => {
-          const lat = get().location?.latitude;
-          const lng = get().location?.longitude;
-          set({ friends: MockService.getFriends(lat, lng) });
-        }, 4000);
+        if (friendUids.length === 0) {
+          // If no friends, render only mock friends
+          const currentLat = get().location?.latitude;
+          const currentLng = get().location?.longitude;
+          set({ friends: MockService.getFriends(currentLat, currentLng) });
+          return;
+        }
 
-        return () => clearInterval(interval);
-      }
+        // Limit to 30 friends per query to avoid Firestore IN limits
+        const chunkedUids = friendUids.slice(0, 30);
+        const usersCollection = collection(db, "users");
+        const q = query(usersCollection, where("uid", "in", chunkedUids));
 
-      // Realtime Firebase mode
-      const usersCollection = collection(db, "users");
-      const unsubscribe = onSnapshot(usersCollection, handleSnapshot);
-      return unsubscribe;
+        currentUnsubscribe = onSnapshot(q, handleSnapshot, (err) => {
+          console.error("Firestore listenToFriends error:", err);
+        });
+      };
+
+      // Subscribe reactively to accepted friends list updates in useFriendStore
+      const unsubscribeFriendStore = useFriendStore.subscribe((state) => {
+        const uids = state.friends.map((f) => f.uid).sort();
+        const uidsString = uids.join(",");
+        if (uidsString !== prevUidsString) {
+          prevUidsString = uidsString;
+          setupQueryListener(uids);
+        }
+      });
+
+      // Trigger initial setup with current friends in store
+      const initialUids = useFriendStore.getState().friends.map((f) => f.uid).sort();
+      prevUidsString = initialUids.join(",");
+      setupQueryListener(initialUids);
+
+      return () => {
+        unsubscribeFriendStore();
+        if (currentUnsubscribe) {
+          currentUnsubscribe();
+        }
+      };
     },
   };
 });
