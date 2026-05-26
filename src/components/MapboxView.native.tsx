@@ -321,20 +321,22 @@ function FallbackMapView({
   const safeLat = typeof latitude === "number" && !isNaN(latitude) ? latitude : -6.2088;
   const safeLng = typeof longitude === "number" && !isNaN(longitude) ? longitude : 106.8456;
 
-  // Smooth follow user in fallback map too!
+  // Smooth Apple Maps style follow camera in fallback map!
   useEffect(() => {
     if (isInitial.current) {
       isInitial.current = false;
       return;
     }
-    mapRef.current?.animateToRegion(
+    mapRef.current?.animateCamera(
       {
-        latitude: safeLat,
-        longitude: safeLng,
-        latitudeDelta: 0.015,
-        longitudeDelta: 0.015,
+        center: {
+          latitude: safeLat,
+          longitude: safeLng,
+        },
+        zoom: 15,
+        pitch: 45, // Tilted perspective like Apple Maps
       },
-      800
+      { duration: 1000 }
     );
   }, [safeLat, safeLng]);
 
@@ -342,11 +344,15 @@ function FallbackMapView({
     <MapView
       ref={mapRef}
       style={StyleSheet.absoluteFill}
-      initialRegion={{
-        latitude: safeLat,
-        longitude: safeLng,
-        latitudeDelta: 0.015,
-        longitudeDelta: 0.015,
+      initialCamera={{
+        center: {
+          latitude: safeLat,
+          longitude: safeLng,
+        },
+        zoom: 15,
+        pitch: 45, // Tilted perspective like Apple Maps
+        heading: 0,
+        altitude: 1000,
       }}
       customMapStyle={isDark ? DARK_MAP_STYLE : LIGHT_MAP_STYLE}
       showsUserLocation={false}
@@ -454,14 +460,16 @@ const MapboxViewComponent = forwardRef<MapboxViewRef, MapboxViewProps>(
           cameraRef.current?.flyTo([coords.longitude, coords.latitude], 800);
           cameraRef.current?.zoomTo(zoom, 800);
         } else {
-          fallbackMapRef.current?.animateToRegion(
+          fallbackMapRef.current?.animateCamera(
             {
-              latitude: coords.latitude,
-              longitude: coords.longitude,
-              latitudeDelta: 0.008,
-              longitudeDelta: 0.008,
+              center: {
+                latitude: coords.latitude,
+                longitude: coords.longitude,
+              },
+              zoom: zoom,
+              pitch: 45, // Tilted perspective like Apple Maps
             },
-            800
+            { duration: 800 }
           );
         }
       },
