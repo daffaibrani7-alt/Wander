@@ -14,6 +14,7 @@ import {
   StatusBar,
   SafeAreaView,
 } from "react-native";
+import * as Haptics from "expo-haptics";
 import {
   Search,
   X,
@@ -142,6 +143,7 @@ export default function HomeMapScreen() {
 
   // ── Friend selection ──────────────────────────────────────────────────────
   const handleSelectFriend = (friend: FriendLocation) => {
+    Haptics.selectionAsync().catch(() => {});
     setSelectedFriendUid(friend.uid);
     if (friend.latitude && friend.longitude) {
       mapRef.current?.flyTo({ latitude: friend.latitude, longitude: friend.longitude }, 15);
@@ -151,6 +153,7 @@ export default function HomeMapScreen() {
   };
 
   const handleClosePanel = () => {
+    Haptics.selectionAsync().catch(() => {});
     Animated.timing(slideAnim, { toValue: height, duration: 240, useNativeDriver: true }).start(() =>
       setSelectedFriendUid(null)
     );
@@ -184,6 +187,7 @@ export default function HomeMapScreen() {
   };
 
   const handleGhostMode = (mode: GhostModeType) => {
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
     setGhostMode(mode);
     const label = GHOST_MODES.find((g) => g.mode === mode)?.label;
     triggerAlert(`Mode lokasi: ${label} ${GHOST_MODES.find((g) => g.mode === mode)?.icon}`);
@@ -192,6 +196,7 @@ export default function HomeMapScreen() {
 
   // ── Recenter ──────────────────────────────────────────────────────────────
   const handleRecenter = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
     setFollowUser(true);
     if (location) {
       mapRef.current?.flyTo({ latitude: location.latitude, longitude: location.longitude }, 15);

@@ -6,6 +6,7 @@ import React, { useRef, useEffect, forwardRef, useImperativeHandle } from "react
 import { View, StyleSheet, Animated, Easing } from "react-native";
 import Reanimated, { useSharedValue, withSpring, useAnimatedProps } from "react-native-reanimated";
 import MapView, { Marker as RNMarker } from "react-native-maps";
+import Constants, { ExecutionEnvironment } from "expo-constants";
 import { COLORS } from "../theme/colors";
 import { MapMarker } from "./MapMarker";
 import { FriendLocation } from "../services/mockService";
@@ -71,7 +72,12 @@ try {
   AnimatedMarkerView = null;
 }
 
-const isMapboxAvailable = !!NativeMapView;
+// Check if running on Expo Go (standard client without custom native binaries)
+const isExpoGo =
+  Constants?.appOwnership === "expo" ||
+  Constants?.executionEnvironment === ExecutionEnvironment.StoreClient;
+
+const isMapboxAvailable = !!NativeMapView && !isExpoGo;
 
 function AnimatedRadarFriend({
   friend,

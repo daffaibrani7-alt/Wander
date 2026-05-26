@@ -1,5 +1,6 @@
 import React from "react";
 import { View, StyleSheet, ViewStyle, Platform } from "react-native";
+import { BlurView } from "expo-blur";
 import { COLORS } from "../theme/colors";
 import { useThemeStore } from "../store/useThemeStore";
 
@@ -12,20 +13,41 @@ export function GlassCard({ children, style }: GlassCardProps) {
   const isDark = useThemeStore((state) => state.isDark);
   const theme = COLORS.get(isDark);
 
+  if (Platform.OS === "web") {
+    return (
+      <View
+        style={[
+          styles.glass,
+          {
+            backgroundColor: theme.cardBg,
+            borderColor: theme.cardBorder,
+            shadowColor: isDark ? "#000" : "rgba(0, 0, 0, 0.1)",
+          },
+          ...(Array.isArray(style) ? style : [style]),
+        ]}
+      >
+        {children}
+      </View>
+    );
+  }
+
+  // Native iOS / Android – use expo-blur
   return (
-    <View
+    <BlurView
+      intensity={85}
+      tint={isDark ? "dark" : "light"}
       style={[
         styles.glass,
         {
-          backgroundColor: theme.cardBg,
           borderColor: theme.cardBorder,
           shadowColor: isDark ? "#000" : "rgba(0, 0, 0, 0.1)",
+          overflow: "hidden",
         },
         ...(Array.isArray(style) ? style : [style]),
       ]}
     >
       {children}
-    </View>
+    </BlurView>
   );
 }
 
