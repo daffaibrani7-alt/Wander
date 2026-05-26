@@ -79,11 +79,11 @@ function AnimatedRadarFriend({
       pan.setValue({ x: finalX, y: finalY });
       isInitialRender.current = false;
     } else {
-      Animated.timing(pan, {
+      Animated.spring(pan, {
         toValue: { x: finalX, y: finalY },
-        duration: 800,
+        friction: 8,
+        tension: 30,
         useNativeDriver: true,
-        easing: Easing.out(Easing.quad),
       }).start();
     }
   }, [friend.latitude, friend.longitude, centerLatitude, centerLongitude]);

@@ -4,7 +4,7 @@
  */
 import React, { useRef, useEffect, forwardRef, useImperativeHandle } from "react";
 import { View, StyleSheet, Animated, Easing } from "react-native";
-import Reanimated, { useSharedValue, withTiming, useAnimatedProps } from "react-native-reanimated";
+import Reanimated, { useSharedValue, withSpring, useAnimatedProps } from "react-native-reanimated";
 import MapView, { Marker as RNMarker } from "react-native-maps";
 import { COLORS } from "../theme/colors";
 import { MapMarker } from "./MapMarker";
@@ -108,11 +108,11 @@ function AnimatedRadarFriend({
       pan.setValue({ x: finalX, y: finalY });
       isInitialRender.current = false;
     } else {
-      Animated.timing(pan, {
+      Animated.spring(pan, {
         toValue: { x: finalX, y: finalY },
-        duration: 800,
+        friction: 8,
+        tension: 30,
         useNativeDriver: true,
-        easing: Easing.out(Easing.quad),
       }).start();
     }
   }, [friend.latitude, friend.longitude, centerLatitude, centerLongitude]);
@@ -207,6 +207,58 @@ const LIGHT_MAP_STYLE = [
   }
 ];
 
+const AnimatedRNMarker = Animated.createAnimatedComponent(RNMarker);
+
+function SmoothFallbackMarker({ friend }: { friend: FriendLocation }) {
+  const animatedLat = useRef(new Animated.Value(friend.latitude)).current;
+  const animatedLon = useRef(new Animated.Value(friend.longitude)).current;
+  const isInitial = useRef(true);
+
+  useEffect(() => {
+    if (isInitial.current) {
+      isInitial.current = false;
+      return;
+    }
+    Animated.parallel([
+      Animated.spring(animatedLat, {
+        toValue: friend.latitude,
+        friction: 8,
+        tension: 30,
+        useNativeDriver: false,
+      }),
+      Animated.spring(animatedLon, {
+        toValue: friend.longitude,
+        friction: 8,
+        tension: 30,
+        useNativeDriver: false,
+      }),
+    ]).start();
+  }, [friend.latitude, friend.longitude]);
+
+  return (
+    <AnimatedRNMarker
+      coordinate={{
+        // @ts-ignore
+        latitude: animatedLat,
+        // @ts-ignore
+        longitude: animatedLon,
+      }}
+      anchor={{ x: 0.5, y: 1.0 }}
+      tracksViewChanges={false}
+    >
+      <MapMarker
+        displayName={friend.displayName}
+        avatarUrl={friend.avatarUrl}
+        avatarEmoji={friend.avatarEmoji}
+        batteryLevel={friend.batteryLevel}
+        isCharging={friend.isCharging}
+        ghostMode={friend.ghostMode}
+        isOnline={Date.now() - new Date(friend.updatedAt).getTime() < 120000}
+      />
+    </AnimatedRNMarker>
+  );
+}
+
 function FallbackMapView({
   isDark,
   friends,
@@ -289,25 +341,10 @@ function FallbackMapView({
         </RNMarker>
       )}
 
-      {/* Render friends */}
+      {/* Render friends with smooth spring physics */}
       {friends &&
         friends.map((friend) => (
-          <RNMarker
-            key={friend.uid}
-            coordinate={{ latitude: friend.latitude, longitude: friend.longitude }}
-            anchor={{ x: 0.5, y: 1.0 }}
-            tracksViewChanges={false}
-          >
-            <MapMarker
-              displayName={friend.displayName}
-              avatarUrl={friend.avatarUrl}
-              avatarEmoji={friend.avatarEmoji}
-              batteryLevel={friend.batteryLevel}
-              isCharging={friend.isCharging}
-              ghostMode={friend.ghostMode}
-              isOnline={Date.now() - new Date(friend.updatedAt).getTime() < 120000}
-            />
-          </RNMarker>
+          <SmoothFallbackMarker key={friend.uid} friend={friend} />
         ))}
     </MapView>
   );
@@ -322,8 +359,8 @@ function AnimatedFriendMarker({ friend }: { friend: FriendLocation }) {
     if (isInitialRender.current) {
       isInitialRender.current = false;
     } else {
-      lon.value = withTiming(friend.longitude, { duration: 800 });
-      lat.value = withTiming(friend.latitude, { duration: 800 });
+      lon.value = withSpring(friend.longitude, { damping: 15, stiffness: 80 });
+      lat.value = withSpring(friend.latitude, { damping: 15, stiffness: 80 });
     }
   }, [friend.longitude, friend.latitude]);
 
