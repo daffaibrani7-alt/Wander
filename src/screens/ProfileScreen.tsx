@@ -110,7 +110,7 @@ export function ProfileScreen({
               <Text style={styles.toggleDesc}>
                 {isLiveFirestore 
                   ? "Sinkronisasi realtime aktif dengan Firestore database." 
-                  : "Berjalan di mode Zenly Sim Engine offline."}
+                  : "Berjalan di mode Wander Sim Engine offline."}
               </Text>
             </View>
             <Switch
@@ -123,7 +123,7 @@ export function ProfileScreen({
         </GlassCard>
 
         {/* Simulation Control Center */}
-        <Text style={styles.sectionTitle}>Zenly Sim Engine (Dev Tools)</Text>
+        <Text style={styles.sectionTitle}>Wander Sim Engine (Dev Tools)</Text>
         <GlassCard style={styles.simCard}>
           <Text style={styles.simIntro}>
             Gunakan tombol interaktif di bawah untuk menyimulasikan fitur-fitur pada aplikasi iPhone.

@@ -37,7 +37,7 @@ if (isFirebaseConfigured) {
     db = null;
   }
 } else {
-  console.log("ℹ️ Running in Zenly Simulation Engine mode (Firebase unconfigured).");
+  console.log("ℹ️ Running in Wander Simulation Engine mode (Firebase unconfigured).");
 }
 
 export { db };
