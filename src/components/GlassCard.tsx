@@ -1,16 +1,29 @@
 import React from "react";
-import { View, StyleSheet, ViewStyle } from "react-native";
+import { View, StyleSheet, ViewStyle, Platform } from "react-native";
 import { COLORS } from "../theme/colors";
+import { useThemeStore } from "../store/useThemeStore";
 
 interface GlassCardProps {
   children: React.ReactNode;
-  style?: ViewStyle;
-  className?: string;
+  style?: ViewStyle | ViewStyle[];
 }
 
-export function GlassCard({ children, style, className }: GlassCardProps) {
+export function GlassCard({ children, style }: GlassCardProps) {
+  const isDark = useThemeStore((state) => state.isDark);
+  const theme = COLORS.get(isDark);
+
   return (
-    <View style={[styles.glass, style]} className={className}>
+    <View
+      style={[
+        styles.glass,
+        {
+          backgroundColor: theme.cardBg,
+          borderColor: theme.cardBorder,
+          shadowColor: isDark ? "#000" : "rgba(0, 0, 0, 0.1)",
+        },
+        ...(Array.isArray(style) ? style : [style]),
+      ]}
+    >
       {children}
     </View>
   );
@@ -18,16 +31,20 @@ export function GlassCard({ children, style, className }: GlassCardProps) {
 
 const styles = StyleSheet.create({
   glass: {
-    backgroundColor: "rgba(24, 24, 27, 0.8)", // Frosted dark gray zinc-900
     borderRadius: 24,
     borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.12)",
     padding: 16,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.44,
-    shadowRadius: 10.32,
-    elevation: 16,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
+    ...Platform.select({
+      web: {
+        backdropFilter: "blur(20px)",
+        WebkitBackdropFilter: "blur(20px)",
+      },
+    }),
   },
 });
+
 export default GlassCard;

@@ -1,23 +1,18 @@
-import React, { useState } from "react";
-import { View, Text, StyleSheet, TextInput, Pressable, ScrollView, Image, SafeAreaView } from "react-native";
+import React, { useState, useEffect } from "react";
+import { View, Text, StyleSheet, TextInput, Pressable, ScrollView, Image, SafeAreaView, Platform } from "react-native";
 import { Search, UserPlus, ArrowLeft, Check, Users } from "lucide-react-native";
-import { GlassCard } from "../components/GlassCard";
-import { COLORS } from "../theme/colors";
+import { GlassCard } from "../../src/components/GlassCard";
+import { COLORS } from "../../src/theme/colors";
+import { useThemeStore } from "../../src/store/useThemeStore";
+import { MockService, FriendLocation } from "../../src/services/mockService";
 
-interface FriendsScreenProps {
-  friendsList: any[];
-  onAddMockFriend: (name: string) => void;
-  onClose: () => void;
-}
+export default function FriendsScreen() {
+  const isDark = useThemeStore((state) => state.isDark);
+  const theme = COLORS.get(isDark);
 
-export function FriendsScreen({ friendsList, onAddMockFriend, onClose }: FriendsScreenProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
-
-  // Filter existing friends
-  const filteredFriends = friendsList.filter((friend) =>
-    friend.displayName.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const [friendsList, setFriendsList] = useState<FriendLocation[]>([]);
 
   // Recommendations of people they might know to add (mocked)
   const [recommendations, setRecommendations] = useState([
@@ -26,16 +21,20 @@ export function FriendsScreen({ friendsList, onAddMockFriend, onClose }: Friends
     { uid: "rec-3", name: "Giri Wijaya", mutual: 1, avatar: "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=150", added: false },
   ]);
 
+  useEffect(() => {
+    // Fetch initial simulated friends list
+    setFriendsList(MockService.getFriends());
+  }, []);
+
   const handleAddRecommendation = (rec: any) => {
-    // Mark as added in UI
     setRecommendations((prev) =>
       prev.map((item) => (item.uid === rec.uid ? { ...item, added: true } : item))
     );
 
-    // Call callback to add friend to location simulation list
-    onAddMockFriend(rec.name);
+    // Call mock service to add to simulator
+    const newFriend = MockService.addMockFriend(rec.name);
+    setFriendsList(prev => [...prev, newFriend]);
 
-    // Trigger success notification
     setSuccessMessage(`Berhasil menambahkan ${rec.name} sebagai teman!`);
     setTimeout(() => {
       setSuccessMessage(null);
@@ -44,47 +43,54 @@ export function FriendsScreen({ friendsList, onAddMockFriend, onClose }: Friends
 
   const handleCustomAdd = () => {
     if (!searchQuery.trim()) return;
-    onAddMockFriend(searchQuery.trim());
-    setSuccessMessage(`Berhasil mengirim permintaan ke ${searchQuery.trim()}!`);
+    const name = searchQuery.trim();
+    const newFriend = MockService.addMockFriend(name);
+    setFriendsList(prev => [...prev, newFriend]);
+    
+    setSuccessMessage(`Berhasil menambahkan ${name} sebagai teman!`);
     setSearchQuery("");
     setTimeout(() => {
       setSuccessMessage(null);
     }, 3000);
   };
 
+  const filteredFriends = friendsList.filter((friend) =>
+    friend.displayName.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
   return (
-    <SafeAreaView style={styles.container}>
-      {/* Toast Alert */}
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
+      {/* Toast Notification */}
       {successMessage && (
-        <GlassCard style={styles.toast}>
+        <GlassCard style={[styles.toast, { backgroundColor: COLORS.green }]}>
           <Text style={styles.toastText}>🎉 {successMessage}</Text>
         </GlassCard>
       )}
 
       {/* Header */}
       <View style={styles.header}>
-        <Pressable onPress={onClose} style={styles.backButton}>
-          <ArrowLeft size={24} color="#FFF" />
-        </Pressable>
-        <Text style={styles.title}>Teman & Kontak 👥</Text>
+        <Text style={[styles.title, { color: theme.text }]}>Teman & Kontak 👥</Text>
+        <Text style={[styles.subtitle, { color: theme.textMuted }]}>
+          Kelola kontak dan temukan koneksi baru untuk radar sosial Anda.
+        </Text>
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
         {/* Search Bar */}
         <GlassCard style={styles.searchCard}>
           <View style={styles.searchContainer}>
-            <Search size={20} color="rgba(255,255,255,0.4)" style={styles.searchIcon} />
+            <Search size={18} color={theme.textMuted} style={styles.searchIcon} />
             <TextInput
-              style={styles.searchInput}
+              style={[styles.searchInput, { color: theme.text }]}
               placeholder="Cari teman atau ketik nama baru..."
-              placeholderTextColor="rgba(255,255,255,0.4)"
+              placeholderTextColor={isDark ? "rgba(255,255,255,0.35)" : "rgba(0,0,0,0.35)"}
               value={searchQuery}
               onChangeText={setSearchQuery}
               onSubmitEditing={handleCustomAdd}
             />
             {searchQuery.length > 0 && (
               <Pressable onPress={handleCustomAdd} style={styles.quickAddButton}>
-                <UserPlus size={16} color="#000" />
+                <UserPlus size={14} color="#000" />
                 <Text style={styles.quickAddText}>Add</Text>
               </Pressable>
             )}
@@ -92,17 +98,17 @@ export function FriendsScreen({ friendsList, onAddMockFriend, onClose }: Friends
         </GlassCard>
 
         {/* Mutual Recommendations */}
-        <Text style={styles.sectionTitle}>Mungkin Anda Kenal</Text>
+        <Text style={[styles.sectionTitle, { color: theme.textMuted }]}>Mungkin Anda Kenal</Text>
         {recommendations.map((rec) => (
           <GlassCard key={rec.uid} style={styles.friendCard}>
             <View style={styles.friendRow}>
               <Image source={{ uri: rec.avatar }} style={styles.avatar} />
               <View style={styles.friendInfo}>
-                <Text style={styles.friendName}>{rec.name}</Text>
-                <Text style={styles.friendMeta}>{rec.mutual} teman bersama</Text>
+                <Text style={[styles.friendName, { color: theme.text }]}>{rec.name}</Text>
+                <Text style={[styles.friendMeta, { color: theme.textMuted }]}>{rec.mutual} teman bersama</Text>
               </View>
               {rec.added ? (
-                <View style={[styles.addedBadge, { backgroundColor: COLORS.green + "20" }]}>
+                <View style={[styles.addedBadge, { backgroundColor: COLORS.green + "15" }]}>
                   <Check size={14} color={COLORS.green} />
                   <Text style={[styles.addedText, { color: COLORS.green }]}>Added</Text>
                 </View>
@@ -111,7 +117,7 @@ export function FriendsScreen({ friendsList, onAddMockFriend, onClose }: Friends
                   onPress={() => handleAddRecommendation(rec)}
                   style={styles.addButton}
                 >
-                  <UserPlus size={16} color="#000" />
+                  <UserPlus size={15} color="#000" />
                   <Text style={styles.addText}>Add</Text>
                 </Pressable>
               )}
@@ -120,11 +126,13 @@ export function FriendsScreen({ friendsList, onAddMockFriend, onClose }: Friends
         ))}
 
         {/* Existing Friends */}
-        <Text style={styles.sectionTitle}>Teman Anda ({filteredFriends.length})</Text>
+        <Text style={[styles.sectionTitle, { color: theme.textMuted }]}>Teman Anda ({filteredFriends.length})</Text>
         {filteredFriends.length === 0 ? (
           <GlassCard style={styles.emptyCard}>
-            <Users size={32} color="rgba(255,255,255,0.3)" />
-            <Text style={styles.emptyText}>Tidak ada teman yang cocok dengan pencarian Anda.</Text>
+            <Users size={32} color={theme.textMuted} />
+            <Text style={[styles.emptyText, { color: theme.textMuted }]}>
+              Tidak ada teman yang cocok dengan pencarian Anda. Ketik nama untuk menambahkan!
+            </Text>
           </GlassCard>
         ) : (
           filteredFriends.map((friend) => (
@@ -132,14 +140,16 @@ export function FriendsScreen({ friendsList, onAddMockFriend, onClose }: Friends
               <View style={styles.friendRow}>
                 <Image source={{ uri: friend.avatarUrl }} style={styles.avatar} />
                 <View style={styles.friendInfo}>
-                  <Text style={styles.friendName}>{friend.displayName}</Text>
-                  <Text style={styles.friendMeta}>
+                  <Text style={[styles.friendName, { color: theme.text }]}>{friend.displayName}</Text>
+                  <Text style={[styles.friendMeta, { color: theme.textMuted }]}>
                     {friend.uid.startsWith("sim") ? "Simulated Friend 🤖" : "Realtime Friend 🔥"}
                   </Text>
                 </View>
                 <View style={styles.chatStatus}>
                   <Text style={styles.statusEmoji}>{friend.avatarEmoji || "📍"}</Text>
-                  <Text style={styles.statusText}>{friend.distanceText || "Dekat"}</Text>
+                  <Text style={[styles.statusText, { color: theme.textMuted }]}>
+                    {friend.distanceText || "Dekat"}
+                  </Text>
                 </View>
               </View>
             </GlassCard>
@@ -153,14 +163,12 @@ export function FriendsScreen({ friendsList, onAddMockFriend, onClose }: Friends
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "rgba(10, 10, 12, 0.95)",
   },
   toast: {
     position: "absolute",
-    top: 50,
+    top: Platform.OS === "ios" ? 54 : 20,
     left: 20,
     right: 20,
-    backgroundColor: COLORS.green,
     zIndex: 999,
     padding: 14,
     alignItems: "center",
@@ -170,50 +178,50 @@ const styles = StyleSheet.create({
     color: "#000",
     fontWeight: "900",
     fontSize: 14,
+    fontFamily: "System",
   },
   header: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 20,
-    paddingTop: 20,
+    paddingHorizontal: 24,
+    paddingTop: Platform.OS === "ios" ? 20 : 32,
     paddingBottom: 16,
   },
-  backButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(255,255,255,0.08)",
-  },
   title: {
-    fontSize: 22,
+    fontSize: 28,
     fontWeight: "900",
-    color: "#FFF",
-    marginLeft: 16,
+    letterSpacing: -0.5,
+    fontFamily: "System",
+  },
+  subtitle: {
+    fontSize: 13,
+    marginTop: 6,
+    lineHeight: 18,
+    fontWeight: "500",
+    fontFamily: "System",
   },
   scrollContent: {
     paddingHorizontal: 20,
-    paddingBottom: 40,
+    paddingBottom: 120, // Leave space for floating tabs
   },
   searchCard: {
-    padding: 12,
-    marginBottom: 24,
+    padding: 10,
+    borderRadius: 20,
+    marginBottom: 20,
+    shadowOpacity: 0.04,
   },
   searchContainer: {
     flexDirection: "row",
     alignItems: "center",
   },
   searchIcon: {
-    marginLeft: 4,
+    marginLeft: 6,
   },
   searchInput: {
     flex: 1,
     height: 40,
-    color: "#FFF",
     fontSize: 15,
     marginLeft: 10,
     fontWeight: "600",
+    fontFamily: "System",
   },
   quickAddButton: {
     backgroundColor: COLORS.cyan,
@@ -228,29 +236,31 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     color: "#000",
     marginLeft: 4,
+    fontFamily: "System",
   },
   sectionTitle: {
-    fontSize: 15,
-    fontWeight: "900",
-    color: "rgba(255,255,255,0.5)",
+    fontSize: 11,
+    fontWeight: "800",
     textTransform: "uppercase",
-    letterSpacing: 0.5,
+    letterSpacing: 1.5,
     marginBottom: 12,
     marginTop: 12,
     paddingLeft: 4,
   },
   friendCard: {
     padding: 12,
+    borderRadius: 20,
     marginBottom: 10,
+    shadowOpacity: 0.03,
   },
   friendRow: {
     flexDirection: "row",
     alignItems: "center",
   },
   avatar: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: "#2C2C2E",
   },
   friendInfo: {
@@ -260,40 +270,42 @@ const styles = StyleSheet.create({
   friendName: {
     fontSize: 15,
     fontWeight: "800",
-    color: "#FFF",
+    fontFamily: "System",
   },
   friendMeta: {
-    fontSize: 12,
-    color: "rgba(255,255,255,0.45)",
+    fontSize: 11,
     marginTop: 2,
+    fontFamily: "System",
   },
   addButton: {
     backgroundColor: COLORS.green,
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 12,
-    height: 36,
-    borderRadius: 14,
+    height: 34,
+    borderRadius: 12,
   },
   addText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "900",
     color: "#000",
     marginLeft: 4,
+    fontFamily: "System",
   },
   addedBadge: {
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 12,
-    height: 36,
-    borderRadius: 14,
+    height: 34,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.08)",
   },
   addedText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "900",
     marginLeft: 4,
+    fontFamily: "System",
   },
   chatStatus: {
     alignItems: "flex-end",
@@ -303,21 +315,22 @@ const styles = StyleSheet.create({
   },
   statusText: {
     fontSize: 10,
-    color: "rgba(255,255,255,0.5)",
     marginTop: 3,
-    fontWeight: "bold",
+    fontWeight: "700",
+    fontFamily: "System",
   },
   emptyCard: {
     padding: 32,
     alignItems: "center",
     justifyContent: "center",
+    borderRadius: 20,
   },
   emptyText: {
-    color: "rgba(255,255,255,0.4)",
     fontSize: 13,
     textAlign: "center",
     marginTop: 10,
     lineHeight: 18,
+    fontWeight: "500",
+    fontFamily: "System",
   },
 });
-export default FriendsScreen;
