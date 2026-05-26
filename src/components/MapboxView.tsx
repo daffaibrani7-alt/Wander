@@ -1,17 +1,10 @@
 /**
  * MapboxView.tsx  ← dipakai di web
  *
- * Web preview menggunakan animated radar premium sebagai pengganti peta.
- * Mapbox sesungguhnya hanya aktif di iOS/Android via MapboxView.native.tsx.
- *
- * Radar ini menampilkan:
- * - Pulse rings animasi stagger
- * - Grid lines tipis
- * - Glow orb di tengah
- * - Marker kustom Anda sendiri (Me Marker) dengan pendaran sian neon
- * - Marker teman dengan visualisasi live real-time
+ * Full interactive Leaflet & OpenStreetMap preview pada Web Platform.
+ * Menghadirkan peta riil premium CartoDB Dark/Light Matter gratis tanpa token!
  */
-import React, { useRef, useEffect, forwardRef, useImperativeHandle } from "react";
+import React, { useRef, useEffect, useState, forwardRef, useImperativeHandle } from "react";
 import { View, Text, StyleSheet, Animated, Easing } from "react-native";
 import { COLORS } from "../theme/colors";
 import { MapMarker } from "./MapMarker";
@@ -40,88 +33,72 @@ export interface MapboxViewProps {
   style?: object;
 }
 
+// Custom HTML for Leaflet markers matching high-fidelity MapMarker design
+function createMarkerHtml(
+  avatarEmoji: string,
+  displayName: string,
+  batteryLevel: number,
+  isCharging: boolean,
+  ghostMode: "precise" | "blurry" | "frozen",
+  isMe: boolean
+): string {
+  const accentColor = isMe ? COLORS.cyan : "#ff007f";
+  const glowShadow = isMe
+    ? "0 0 15px rgba(0, 240, 255, 0.65)"
+    : "0 0 15px rgba(255, 0, 127, 0.65)";
 
-
-function AnimatedRadarFriend({
-  friend,
-  centerLatitude,
-  centerLongitude,
-  isDark,
-}: {
-  friend: FriendLocation;
-  centerLatitude: number;
-  centerLongitude: number;
-  isDark: boolean;
-}) {
-  const pan = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
-  const isInitialRender = useRef(true);
-
-  useEffect(() => {
-    const latDiff = friend.latitude - centerLatitude;
-    const lngDiff = friend.longitude - centerLongitude;
-
-    const yMeters = latDiff * 111000;
-    const xMeters = lngDiff * 111000 * Math.cos((centerLatitude * Math.PI) / 180);
-
-    const scale = 110 / 1000;
-    const px = xMeters * scale;
-    const py = -yMeters * scale;
-
-    const distance = Math.sqrt(px * px + py * py);
-    let finalX = px;
-    let finalY = py;
-    if (distance > 135) {
-      finalX = (px / distance) * 135;
-      finalY = (py / distance) * 135;
-    }
-
-    if (isInitialRender.current) {
-      pan.setValue({ x: finalX, y: finalY });
-      isInitialRender.current = false;
-    } else {
-      Animated.spring(pan, {
-        toValue: { x: finalX, y: finalY },
-        friction: 8,
-        tension: 30,
-        useNativeDriver: true,
-      }).start();
-    }
-  }, [friend.latitude, friend.longitude, centerLatitude, centerLongitude]);
-
-  return (
-    <Animated.View
-      style={[
-        styles.friendMarkerContainer,
-        {
-          transform: pan.getTranslateTransform(),
-        },
-      ]}
-    >
-      <MapMarker
-        displayName={friend.displayName}
-        avatarUrl={friend.avatarUrl}
-        avatarEmoji={friend.avatarEmoji}
-        batteryLevel={friend.batteryLevel}
-        isCharging={friend.isCharging}
-        ghostMode={friend.ghostMode}
-        isMe={false}
-        isOnline={Date.now() - new Date(friend.updatedAt).getTime() < 120000}
-      />
-      <View
-        style={[
-          styles.nameTag,
-          {
-            backgroundColor: isDark ? "rgba(18,18,22,0.9)" : "rgba(255,255,255,0.92)",
-            borderColor: isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.08)",
-          },
-        ]}
-      >
-        <Text style={[styles.nameTagText, { color: isDark ? "#fff" : "#000" }]} numberOfLines={1}>
-          {friend.displayName}
-        </Text>
-      </View>
-    </Animated.View>
-  );
+  return `
+    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; user-select: none;">
+      <!-- Glowing avatar container -->
+      <div style="
+        width: 44px;
+        height: 44px;
+        border-radius: 50%;
+        background: rgba(18, 18, 22, 0.95);
+        border: 2px solid ${accentColor};
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: ${glowShadow};
+        position: relative;
+      ">
+        <span style="font-size: 22px;">${avatarEmoji}</span>
+        
+        <!-- Battery Badge -->
+        <div style="
+          position: absolute;
+          bottom: -4px;
+          right: -4px;
+          background: #121216;
+          border: 1px solid rgba(255,255,255,0.2);
+          padding: 1px 4px;
+          border-radius: 6px;
+          display: flex;
+          align-items: center;
+          line-height: 10px;
+        ">
+          <span style="font-size: 8px; font-weight: 900; color: ${batteryLevel < 20 ? "#ff4757" : "#2ed573"}; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+            ${isCharging ? "⚡" : ""}${batteryLevel}%
+          </span>
+        </div>
+      </div>
+      
+      <!-- Name tag -->
+      <div style="
+        background: rgba(18, 18, 22, 0.9);
+        border: 1px solid rgba(255,255,255,0.1);
+        padding: 2px 8px;
+        border-radius: 8px;
+        margin-top: 4px;
+        white-space: nowrap;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+      ">
+        <span style="font-size: 9px; font-weight: 900; color: #ffffff; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; letter-spacing: 0.5px;">
+          ${displayName}
+        </span>
+      </div>
+    </div>
+  `;
 }
 
 const MapboxViewComponent = forwardRef<MapboxViewRef, MapboxViewProps>(
@@ -142,11 +119,207 @@ const MapboxViewComponent = forwardRef<MapboxViewRef, MapboxViewProps>(
     },
     ref
   ) => {
-    // flyTo is a no-op on web (radar doesn't move)
+    const [leafletLoaded, setLeafletLoaded] = useState(false);
+    const mapRef = useRef<any>(null);
+    const mapDivRef = useRef<HTMLDivElement>(null);
+    const markersRef = useRef<{ [key: string]: any }>({});
+
+    // Expose flyTo ref method to work exactly like Native Mapbox/Google Maps flyTo
     useImperativeHandle(ref, () => ({
-      flyTo: () => {},
+      flyTo: (coords: { latitude: number; longitude: number }, zoom = 15) => {
+        if (mapRef.current) {
+          mapRef.current.setView([coords.latitude, coords.longitude], zoom, {
+            animate: true,
+            duration: 0.8,
+          });
+        }
+      },
     }));
 
+    // 1. Dynamic CDN Loading of Leaflet CSS and JS (runs only once in browser)
+    useEffect(() => {
+      if (typeof window === "undefined") return;
+
+      if ((window as any).L) {
+        setLeafletLoaded(true);
+        return;
+      }
+
+      // Inject Leaflet CSS
+      const cssId = "leaflet-css-cdn";
+      if (!document.getElementById(cssId)) {
+        const link = document.createElement("link");
+        link.id = cssId;
+        link.rel = "stylesheet";
+        link.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
+        document.head.appendChild(link);
+      }
+
+      // Inject overrides styles for divIcon custom rendering
+      const styleId = "leaflet-marker-custom-styles";
+      if (!document.getElementById(styleId)) {
+        const styleTag = document.createElement("style");
+        styleTag.id = styleId;
+        styleTag.innerHTML = `
+          .custom-leaflet-marker {
+            background: transparent !important;
+            border: none !important;
+            box-shadow: none !important;
+          }
+        `;
+        document.head.appendChild(styleTag);
+      }
+
+      // Inject Leaflet JS
+      const scriptId = "leaflet-js-cdn";
+      if (!document.getElementById(scriptId)) {
+        const script = document.createElement("script");
+        script.id = scriptId;
+        script.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
+        script.async = true;
+        script.onload = () => {
+          setLeafletLoaded(true);
+        };
+        document.body.appendChild(script);
+      } else {
+        const checkInterval = setInterval(() => {
+          if ((window as any).L) {
+            clearInterval(checkInterval);
+            setLeafletLoaded(true);
+          }
+        }, 100);
+        return () => clearInterval(checkInterval);
+      }
+    }, []);
+
+    // 2. Map Initialization & Dynamic Theme Handling
+    useEffect(() => {
+      if (!leafletLoaded || !mapDivRef.current) return;
+      const L = (window as any).L;
+      if (!L) return;
+
+      // Clean up previous map if active
+      if (mapRef.current) {
+        mapRef.current.remove();
+        mapRef.current = null;
+        markersRef.current = {};
+      }
+
+      // Initialize Leaflet Map
+      const map = L.map(mapDivRef.current, {
+        zoomControl: false,
+        attributionControl: false,
+      }).setView([latitude, longitude], 14);
+
+      mapRef.current = map;
+
+      // Load premium styled CartoDB tile layer
+      const tileUrl = isDark
+        ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+        : "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png";
+
+      L.tileLayer(tileUrl, {
+        maxZoom: 19,
+      }).addTo(map);
+
+      // Disable followUser on map drag
+      map.on("dragstart", () => {
+        if (onMapPan) onMapPan();
+      });
+
+      return () => {
+        if (mapRef.current) {
+          mapRef.current.remove();
+          mapRef.current = null;
+          markersRef.current = {};
+        }
+      };
+    }, [leafletLoaded, isDark]);
+
+    // 3. Keep camera centered on coordinate when followUser is active
+    useEffect(() => {
+      if (!mapRef.current || !followUser) return;
+      mapRef.current.panTo([latitude, longitude], { animate: true, duration: 0.8 });
+    }, [latitude, longitude, followUser]);
+
+    // 4. Render user and friends markers dynamically with gorgeous neon markers
+    useEffect(() => {
+      if (!leafletLoaded || !mapRef.current) return;
+      const L = (window as any).L;
+      if (!L) return;
+
+      const currentMarkers = markersRef.current;
+      const activeKeys = new Set<string>();
+
+      // 4a. User Marker (Me)
+      const meKey = "user-me";
+      activeKeys.add(meKey);
+      
+      const meHtml = createMarkerHtml(
+        userProfile?.avatarEmoji || "🦊",
+        userProfile?.displayName || "Saya",
+        userBatteryLevel,
+        userIsCharging,
+        userGhostMode,
+        true
+      );
+
+      const meIcon = L.divIcon({
+        html: meHtml,
+        className: "custom-leaflet-marker",
+        iconSize: [60, 80],
+        iconAnchor: [30, 60],
+      });
+
+      if (currentMarkers[meKey]) {
+        currentMarkers[meKey].setLatLng([latitude, longitude]);
+        currentMarkers[meKey].setIcon(meIcon);
+      } else {
+        currentMarkers[meKey] = L.marker([latitude, longitude], { icon: meIcon }).addTo(mapRef.current);
+      }
+
+      // 4b. Friend Markers
+      if (friends) {
+        friends.forEach((friend) => {
+          const friendKey = `friend-${friend.uid}`;
+          activeKeys.add(friendKey);
+
+          const fHtml = createMarkerHtml(
+            friend.avatarEmoji,
+            friend.displayName,
+            friend.batteryLevel,
+            friend.isCharging,
+            friend.ghostMode,
+            false
+          );
+
+          const fIcon = L.divIcon({
+            html: fHtml,
+            className: "custom-leaflet-marker",
+            iconSize: [60, 80],
+            iconAnchor: [30, 60],
+          });
+
+          if (currentMarkers[friendKey]) {
+            currentMarkers[friendKey].setLatLng([friend.latitude, friend.longitude]);
+            currentMarkers[friendKey].setIcon(fIcon);
+          } else {
+            currentMarkers[friendKey] = L.marker([friend.latitude, friend.longitude], { icon: fIcon })
+              .addTo(mapRef.current);
+          }
+        });
+      }
+
+      // 4c. Clean up removed friends / markers
+      Object.keys(currentMarkers).forEach((key) => {
+        if (!activeKeys.has(key)) {
+          currentMarkers[key].remove();
+          delete currentMarkers[key];
+        }
+      });
+    }, [leafletLoaded, latitude, longitude, friends, userProfile, userBatteryLevel, userIsCharging, userGhostMode]);
+
+    // Concentric-ring radar as placeholder while Leaflet assets are downloading from CDN
     const rings = [
       useRef(new Animated.Value(0)).current,
       useRef(new Animated.Value(0)).current,
@@ -154,10 +327,9 @@ const MapboxViewComponent = forwardRef<MapboxViewRef, MapboxViewProps>(
       useRef(new Animated.Value(0)).current,
     ];
     const gridOpacity = useRef(new Animated.Value(0)).current;
-    const dotGlow = useRef(new Animated.Value(0.6)).current;
 
     useEffect(() => {
-      // Staggered pulse rings
+      if (leafletLoaded) return;
       rings.forEach((ring, i) => {
         Animated.loop(
           Animated.sequence([
@@ -173,21 +345,12 @@ const MapboxViewComponent = forwardRef<MapboxViewRef, MapboxViewProps>(
         ).start();
       });
 
-      // Grid fade in
       Animated.timing(gridOpacity, {
         toValue: 1,
         duration: 1200,
         useNativeDriver: true,
       }).start();
-
-      // Center dot breathing
-      Animated.loop(
-        Animated.sequence([
-          Animated.timing(dotGlow, { toValue: 1, duration: 1200, useNativeDriver: true }),
-          Animated.timing(dotGlow, { toValue: 0.6, duration: 1200, useNativeDriver: true }),
-        ])
-      ).start();
-    }, []);
+    }, [leafletLoaded]);
 
     const accent = isDark ? COLORS.cyan : "#0055FF";
     const bg = isDark ? "#06060E" : "#EAECF8";
@@ -195,82 +358,70 @@ const MapboxViewComponent = forwardRef<MapboxViewRef, MapboxViewProps>(
 
     return (
       <View style={[styles.container, { backgroundColor: bg }, style]}>
-        {/* Grid lines */}
-        <Animated.View style={[StyleSheet.absoluteFill, { opacity: gridOpacity }]}>
-          {[-4, -3, -2, -1, 0, 1, 2, 3, 4].map((i) => (
-            <View
-              key={`h${i}`}
-              style={[
-                styles.gridH,
-                { top: `${50 + i * 10}%` as any, backgroundColor: gridColor },
-              ]}
-            />
-          ))}
-          {[-4, -3, -2, -1, 0, 1, 2, 3, 4].map((i) => (
-            <View
-              key={`v${i}`}
-              style={[
-                styles.gridV,
-                { left: `${50 + i * 10}%` as any, backgroundColor: gridColor },
-              ]}
-            />
-          ))}
-        </Animated.View>
-
-        {/* Pulse rings */}
-        {rings.map((ring, i) => (
-          <Animated.View
-            key={i}
-            style={[
-              styles.ring,
-              {
-                borderColor: accent,
-                transform: [
-                  { scale: ring.interpolate({ inputRange: [0, 1], outputRange: [0.05, 4.5] }) },
-                ],
-                opacity: ring.interpolate({
-                  inputRange: [0, 0.12, 0.75, 1],
-                  outputRange: [0, 0.85, 0.2, 0],
-                }),
-              },
-            ]}
-          />
-        ))}
-
-        {/* Glow orb */}
-        <View
-          style={[
-            styles.glowOrb,
-            { backgroundColor: accent + (isDark ? "14" : "0D") },
-          ]}
+        {/* Real Leaflet Map for Web */}
+        <div 
+          ref={mapDivRef} 
+          style={{ 
+            width: "100%", 
+            height: "100%", 
+            position: "absolute", 
+            zIndex: 1,
+            opacity: leafletLoaded ? 1 : 0,
+            transition: "opacity 0.4s ease-in-out"
+          }} 
         />
 
-        {/* ── Center User Custom Marker (Me) ── */}
-        <View style={styles.centerMarkerContainer}>
-          <MapMarker
-            displayName={userProfile?.displayName || "Saya"}
-            avatarUrl={userProfile?.photoURL || ""}
-            avatarEmoji={userProfile?.avatarEmoji || "🦊"}
-            batteryLevel={userBatteryLevel}
-            isCharging={userIsCharging}
-            ghostMode={userGhostMode}
-            isMe={true}
-          />
-        </View>
+        {/* Concentric rings radar as Loading Placeholder */}
+        {!leafletLoaded && (
+          <View style={styles.radarPlaceholder}>
+            {/* Grid lines */}
+            <Animated.View style={[StyleSheet.absoluteFill, { opacity: gridOpacity }]}>
+              {[-4, -3, -2, -1, 0, 1, 2, 3, 4].map((i) => (
+                <View
+                  key={`h${i}`}
+                  style={[
+                    styles.gridH,
+                    { top: `${50 + i * 10}%` as any, backgroundColor: gridColor },
+                  ]}
+                />
+              ))}
+              {[-4, -3, -2, -1, 0, 1, 2, 3, 4].map((i) => (
+                <View
+                  key={`v${i}`}
+                  style={[
+                    styles.gridV,
+                    { left: `${50 + i * 10}%` as any, backgroundColor: gridColor },
+                  ]}
+                />
+              ))}
+            </Animated.View>
 
-        {/* ── Friend markers on the Radar ── */}
-        {friends &&
-          friends.map((friend) => (
-            <AnimatedRadarFriend
-              key={friend.uid}
-              friend={friend}
-              centerLatitude={latitude}
-              centerLongitude={longitude}
-              isDark={isDark}
-            />
-          ))}
+            {/* Pulse rings */}
+            {rings.map((ring, i) => (
+              <Animated.View
+                key={i}
+                style={[
+                  styles.ring,
+                  {
+                    borderColor: accent,
+                    transform: [
+                      { scale: ring.interpolate({ inputRange: [0, 1], outputRange: [0.05, 4.5] }) },
+                    ],
+                    opacity: ring.interpolate({
+                      inputRange: [0, 0.12, 0.75, 1],
+                      outputRange: [0, 0.85, 0.2, 0],
+                    }),
+                  },
+                ]}
+              />
+            ))}
 
-        {/* Children (overlays etc) */}
+            <Text style={{ position: "absolute", bottom: 40, color: accent, fontSize: 12, fontWeight: "800", opacity: 0.75 }}>
+              MEMUAT PETA INTERAKTIF...
+            </Text>
+          </View>
+        )}
+
         {children}
       </View>
     );
@@ -283,9 +434,13 @@ export const MapboxView = MapboxViewComponent;
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    overflow: "hidden",
+    position: "relative",
+  },
+  radarPlaceholder: {
+    ...StyleSheet.absoluteFill,
     alignItems: "center",
     justifyContent: "center",
-    overflow: "hidden",
   },
   ring: {
     position: "absolute",
@@ -293,18 +448,6 @@ const styles = StyleSheet.create({
     height: 80,
     borderRadius: 40,
     borderWidth: 1.5,
-  },
-  glowOrb: {
-    position: "absolute",
-    width: 240,
-    height: 240,
-    borderRadius: 120,
-  },
-  centerMarkerContainer: {
-    position: "absolute",
-    alignItems: "center",
-    justifyContent: "center",
-    zIndex: 30, // Paling atas, melebihi teman jika bertumpuk
   },
   gridH: {
     position: "absolute",
@@ -315,28 +458,5 @@ const styles = StyleSheet.create({
     position: "absolute",
     height: "100%",
     width: 1,
-  },
-  friendMarkerContainer: {
-    position: "absolute",
-    alignItems: "center",
-    justifyContent: "center",
-    zIndex: 20,
-  },
-  nameTag: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 8,
-    borderWidth: 1,
-    marginTop: -8,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
-    elevation: 2,
-  },
-  nameTagText: {
-    fontSize: 9,
-    fontWeight: "900",
-    fontFamily: "System",
   },
 });
