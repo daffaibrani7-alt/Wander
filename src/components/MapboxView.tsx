@@ -41,7 +41,8 @@ function createMarkerHtml(
   isCharging: boolean,
   ghostMode: "precise" | "blurry" | "frozen",
   isMe: boolean,
-  activity?: "online" | "idle" | "driving" | "sleeping"
+  activity?: "online" | "idle" | "driving" | "sleeping",
+  geofence?: "home" | "work" | "school" | null
 ): string {
   const accentColor = isMe ? COLORS.cyan : "#ff007f";
   const glowShadow = isMe
@@ -65,8 +66,8 @@ function createMarkerHtml(
       ">
         <span style="font-size: 22px;">${avatarEmoji}</span>
         
-        <!-- Activity Status Badge -->
-        ${activity && activity !== "online" ? `
+        <!-- Activity / Geofence Status Badge -->
+        ${(geofence || (activity && activity !== "online")) ? `
           <div style="
             position: absolute;
             top: -4px;
@@ -81,9 +82,12 @@ function createMarkerHtml(
             justify-content: center;
             font-size: 10px;
           ">
-            ${activity === "driving" ? "🚗" : ""}
-            ${activity === "sleeping" ? "😴" : ""}
-            ${activity === "idle" ? "⏳" : ""}
+            ${geofence === "home" ? "🏡" : ""}
+            ${geofence === "work" ? "💼" : ""}
+            ${geofence === "school" ? "🏫" : ""}
+            ${!geofence && activity === "driving" ? "🚗" : ""}
+            ${!geofence && activity === "sleeping" ? "😴" : ""}
+            ${!geofence && activity === "idle" ? "⏳" : ""}
           </div>
         ` : ""}
 
@@ -285,7 +289,8 @@ const MapboxViewComponent = forwardRef<MapboxViewRef, MapboxViewProps>(
         userIsCharging,
         userGhostMode,
         true,
-        userIsCharging && userBatteryLevel === 100 ? "online" : undefined
+        userIsCharging && userBatteryLevel === 100 ? "online" : undefined,
+        undefined
       );
 
       const meIcon = L.divIcon({
@@ -315,7 +320,8 @@ const MapboxViewComponent = forwardRef<MapboxViewRef, MapboxViewProps>(
             friend.isCharging,
             friend.ghostMode,
             false,
-            friend.activity
+            friend.activity,
+            friend.geofence
           );
 
           const fIcon = L.divIcon({

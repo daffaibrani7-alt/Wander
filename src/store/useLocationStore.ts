@@ -88,6 +88,36 @@ function analyzeActivity(
   return "online";
 }
 
+// Helper: Check if location falls within any coordinate geofence (Radius: 150m)
+function checkGeofence(latitude: number, longitude: number, uid: string): "home" | "work" | "school" | null {
+  // Define default geofence coordinate anchors for both simulated friends and default user Me
+  const GEOFENCE_REGISTRY: { [uid: string]: { home?: any; work?: any; school?: any } } = {
+    "sim-1": { work: { latitude: -6.2045, longitude: 106.8490 } },
+    "sim-2": { home: { latitude: -6.2150, longitude: 106.8390 } },
+    "sim-3": { school: { latitude: -6.2110, longitude: 106.8520 } },
+    "default-me": { home: { latitude: -6.2088, longitude: 106.8456 } }
+  };
+
+  const userGeofences = GEOFENCE_REGISTRY[uid] || GEOFENCE_REGISTRY["default-me"];
+  const radiusKm = 0.15; // 150 meters in km
+
+  if (userGeofences.home) {
+    const dist = calculateDistance(latitude, longitude, userGeofences.home.latitude, userGeofences.home.longitude);
+    if (dist <= radiusKm) return "home";
+  }
+  if (userGeofences.work) {
+    const dist = calculateDistance(latitude, longitude, userGeofences.work.latitude, userGeofences.work.longitude);
+    if (dist <= radiusKm) return "work";
+  }
+  if (userGeofences.school) {
+    const dist = calculateDistance(latitude, longitude, userGeofences.school.latitude, userGeofences.school.longitude);
+    if (dist <= radiusKm) return "school";
+  }
+
+  return null;
+}
+
+
 // Helper: Determine optimized foreground options according to battery health
 function getForegroundOptions(batteryLevel: number, isCharging: boolean, lowPowerMode: boolean) {
   // Low battery (< 15% and not plugged in) or low power mode enabled: Every 30s / 30m, lower accuracy
@@ -394,6 +424,7 @@ export const useLocationStore = create<LocationState>((set, get) => {
         const locationDocRef = doc(db, "locations", currentUser.uid);
         const nowStr = new Date().toISOString();
         const activity = analyzeActivity(coords.speed ?? null, isCharging, nowStr, batteryLevel);
+        const geofence = checkGeofence(finalCoords.latitude, finalCoords.longitude, currentUser.uid);
 
         await setDoc(
           locationDocRef,
@@ -409,6 +440,7 @@ export const useLocationStore = create<LocationState>((set, get) => {
             lastSeen: serverTimestamp(),
             updatedAt: nowStr,
             activity,
+            geofence,
           },
           { merge: true }
         );
@@ -467,6 +499,7 @@ export const useLocationStore = create<LocationState>((set, get) => {
               isCharging: !!data.isCharging,
               ghostMode: data.ghostMode || "precise",
               activity: data.activity || "online",
+              geofence: data.geofence || checkGeofence(data.latitude, data.longitude, data.uid) || null,
               distanceText:
                 distance < 1
                   ? `${Math.round(distance * 1000)} m`

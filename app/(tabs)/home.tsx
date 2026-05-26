@@ -427,7 +427,7 @@ export default function HomeMapScreen() {
 
             {/* Friend info */}
             <View style={styles.friendRow}>
-              <View style={[styles.friendAvatarWrap, { shadowColor: COLORS.cyan }]}>
+              <View style={[styles.friendAvatarWrap, { shadowColor: selectedFriend.geofence ? COLORS.cyan : COLORS.pink }]}>
                 <Text style={styles.friendEmoji}>{selectedFriend.avatarEmoji}</Text>
                 <View
                   style={[
@@ -441,15 +441,69 @@ export default function HomeMapScreen() {
                   {selectedFriend.displayName}
                 </Text>
                 <Text style={[styles.friendSub, { color: theme.textMuted }]}>
-                  📍 {selectedFriend.distanceText || "Menghitung..."}
+                  📍 Jarak: {selectedFriend.distanceText || "Menghitung..."}
                 </Text>
                 <Text style={[styles.friendSub, { color: theme.textMuted }]}>
-                  🕒 {selectedFriend.statusText || "Aktif"}
+                  🕒 Diperbarui: {selectedFriend.statusText || "Aktif"}
                 </Text>
               </View>
               <Pressable onPress={handleClosePanel} style={styles.closeBtn}>
                 <X size={16} color={theme.textMuted} />
               </Pressable>
+            </View>
+
+            {/* Zenly Status Pills */}
+            <View style={styles.pillsContainer}>
+              {/* Geofence Status Pill */}
+              {selectedFriend.geofence && (
+                <View style={[styles.statusPill, { backgroundColor: "rgba(0, 240, 255, 0.12)", borderColor: COLORS.cyan + "50" }]}>
+                  <Text style={[styles.statusTextPill, { color: COLORS.cyan }]}>
+                    {selectedFriend.geofence === "home" && "🏡 Di Rumah"}
+                    {selectedFriend.geofence === "work" && "💼 Di Kantor"}
+                    {selectedFriend.geofence === "school" && "🏫 Di Sekolah"}
+                  </Text>
+                </View>
+              )}
+
+              {/* Activity Status Pill */}
+              <View style={[
+                styles.statusPill, 
+                { 
+                  backgroundColor: selectedFriend.activity === "driving" ? "rgba(255, 138, 0, 0.12)" : 
+                                   selectedFriend.activity === "sleeping" ? "rgba(138, 63, 252, 0.12)" : 
+                                   "rgba(43, 224, 128, 0.12)", 
+                  borderColor: selectedFriend.activity === "driving" ? "#FF8A0080" : 
+                               selectedFriend.activity === "sleeping" ? "#8A3FFC80" : 
+                               "#2BE08080"
+                }
+              ]}>
+                <Text style={[
+                  styles.statusTextPill, 
+                  { 
+                    color: selectedFriend.activity === "driving" ? "#FF8A00" : 
+                           selectedFriend.activity === "sleeping" ? "#8A3FFC" : 
+                           "#2BE080"
+                  }
+                ]}>
+                  {selectedFriend.activity === "driving" && "🚗 Sedang Menyetir"}
+                  {selectedFriend.activity === "sleeping" && "😴 Sedang Tidur"}
+                  {selectedFriend.activity === "idle" && "⏳ Diam di Tempat"}
+                  {selectedFriend.activity === "online" && "🟢 Sedang Aktif"}
+                </Text>
+              </View>
+
+              {/* Battery / Charging Status Pill */}
+              <View style={[
+                styles.statusPill, 
+                { 
+                  backgroundColor: selectedFriend.isCharging ? "rgba(46, 213, 115, 0.15)" : "rgba(255, 255, 255, 0.08)", 
+                  borderColor: selectedFriend.isCharging ? "#2ed57380" : "rgba(255, 255, 255, 0.15)" 
+                }
+              ]}>
+                <Text style={[styles.statusTextPill, { color: selectedFriend.isCharging ? "#2ed573" : theme.text }]}>
+                  {selectedFriend.isCharging ? "⚡ Mengisi Daya" : "🔋 Baterai"} {selectedFriend.batteryLevel}%
+                </Text>
+              </View>
             </View>
 
             {/* Actions */}
@@ -494,6 +548,7 @@ export default function HomeMapScreen() {
           </GlassCard>
         </Animated.View>
       )}
+
 
       {/* ── Friends quick list (bottom right) ── */}
       <View style={styles.friendsQuick} pointerEvents="box-none">
@@ -841,4 +896,25 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: "transparent",
   },
+  pillsContainer: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    marginTop: 2,
+    marginBottom: 16,
+    gap: 6,
+  },
+  statusPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderRadius: 12,
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+    borderWidth: 1,
+  },
+  statusTextPill: {
+    fontSize: 11,
+    fontWeight: "800",
+    fontFamily: "System",
+  },
 });
+

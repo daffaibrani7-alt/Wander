@@ -11,6 +11,7 @@ export interface FriendLocation {
   isCharging: boolean;
   ghostMode: "precise" | "blurry" | "frozen";
   activity?: "online" | "idle" | "driving" | "sleeping";
+  geofence?: "home" | "work" | "school" | null; // added for geofencing status
   distanceText?: string;
   statusText?: string;
   updatedAt: string;
@@ -29,6 +30,7 @@ const MOCK_FRIENDS: FriendLocation[] = [
     isCharging: false,
     ghostMode: "precise",
     activity: "driving",
+    geofence: "work",
     statusText: "Active 2m ago",
     updatedAt: "Baru saja",
   },
@@ -43,6 +45,7 @@ const MOCK_FRIENDS: FriendLocation[] = [
     isCharging: true,
     ghostMode: "frozen",
     activity: "sleeping",
+    geofence: "home",
     statusText: "Frozen (2 hours ago)",
     updatedAt: "2 jam lalu",
   },
@@ -59,6 +62,7 @@ const MOCK_FRIENDS: FriendLocation[] = [
     isCharging: false,
     ghostMode: "blurry",
     activity: "idle",
+    geofence: "school",
     statusText: "Blurry (1.5km radius)",
     updatedAt: "Aktif",
   }

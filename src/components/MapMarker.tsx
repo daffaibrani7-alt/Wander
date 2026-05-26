@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useRef } from "react";
 import { View, Image, Text, StyleSheet, Animated } from "react-native";
 import { BatteryBadge } from "./BatteryBadge";
 
@@ -10,6 +10,7 @@ interface MapMarkerProps {
   isCharging: boolean;
   ghostMode: "precise" | "blurry" | "frozen";
   activity?: "online" | "idle" | "driving" | "sleeping";
+  geofence?: "home" | "work" | "school" | null; // added field
   isMe?: boolean;
   isOnline?: boolean;
 }
@@ -22,9 +23,21 @@ export function MapMarker({
   isCharging,
   ghostMode,
   activity,
+  geofence,
   isMe = false,
   isOnline = true,
 }: MapMarkerProps) {
+  const scaleAnim = useRef(new Animated.Value(0)).current;
+
+  // Premium spring bounce micro-animation on mount
+  useEffect(() => {
+    Animated.spring(scaleAnim, {
+      toValue: 1,
+      tension: 110,
+      friction: 6,
+      useNativeDriver: true,
+    }).start();
+  }, []);
   
   // Decide glowing border color
   const getGlowColor = () => {
@@ -37,7 +50,7 @@ export function MapMarker({
   const glowColor = getGlowColor();
 
   return (
-    <View style={styles.container}>
+    <Animated.View style={[styles.container, { transform: [{ scale: scaleAnim }] }]}>
       {/* Outer Glow Ring */}
       <View style={[styles.glowRing, { borderColor: glowColor }]}>
         {/* Avatar Wrapper */}
@@ -56,13 +69,16 @@ export function MapMarker({
           <Text style={styles.emojiText}>{avatarEmoji || "📍"}</Text>
         </View>
 
-        {/* Floating Activity Status Badge */}
-        {activity && activity !== "online" && (
+        {/* Floating Activity/Geofence Status Badge */}
+        {(geofence || (activity && activity !== "online")) && (
           <View style={styles.activityBadge}>
             <Text style={{ fontSize: 10 }}>
-              {activity === "driving" && "🚗"}
-              {activity === "sleeping" && "😴"}
-              {activity === "idle" && "⏳"}
+              {geofence === "home" && "🏡"}
+              {geofence === "work" && "💼"}
+              {geofence === "school" && "🏫"}
+              {!geofence && activity === "driving" && "🚗"}
+              {!geofence && activity === "sleeping" && "😴"}
+              {!geofence && activity === "idle" && "⏳"}
             </Text>
           </View>
         )}
@@ -83,7 +99,7 @@ export function MapMarker({
       
       {/* Mini stem pointing down */}
       <View style={[styles.markerStem, { borderTopColor: glowColor }]} />
-    </View>
+    </Animated.View>
   );
 }
 

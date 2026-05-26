@@ -286,6 +286,7 @@ function SmoothFallbackMarker({ friend }: { friend: FriendLocation }) {
         isCharging={friend.isCharging}
         ghostMode={friend.ghostMode}
         activity={friend.activity}
+        geofence={friend.geofence}
         isOnline={Date.now() - new Date(friend.updatedAt).getTime() < 120000}
       />
     </AnimatedRNMarker>
@@ -428,6 +429,7 @@ function AnimatedFriendMarker({ friend }: { friend: FriendLocation }) {
         isCharging={friend.isCharging}
         ghostMode={friend.ghostMode}
         activity={friend.activity}
+        geofence={friend.geofence}
         isOnline={Date.now() - new Date(friend.updatedAt).getTime() < 120000}
       />
     </AnimatedMarkerView>
