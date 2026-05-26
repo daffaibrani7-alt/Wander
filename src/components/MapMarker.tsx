@@ -9,6 +9,7 @@ interface MapMarkerProps {
   batteryLevel: number;
   isCharging: boolean;
   ghostMode: "precise" | "blurry" | "frozen";
+  activity?: "online" | "idle" | "driving" | "sleeping";
   isMe?: boolean;
   isOnline?: boolean;
 }
@@ -20,6 +21,7 @@ export function MapMarker({
   batteryLevel,
   isCharging,
   ghostMode,
+  activity,
   isMe = false,
   isOnline = true,
 }: MapMarkerProps) {
@@ -53,6 +55,17 @@ export function MapMarker({
         <View style={[styles.emojiBadge, { backgroundColor: glowColor }]}>
           <Text style={styles.emojiText}>{avatarEmoji || "📍"}</Text>
         </View>
+
+        {/* Floating Activity Status Badge */}
+        {activity && activity !== "online" && (
+          <View style={styles.activityBadge}>
+            <Text style={{ fontSize: 10 }}>
+              {activity === "driving" && "🚗"}
+              {activity === "sleeping" && "😴"}
+              {activity === "idle" && "⏳"}
+            </Text>
+          </View>
+        )}
 
         {/* Online Status Dot */}
         <View
@@ -137,6 +150,24 @@ const styles = StyleSheet.create({
   },
   emojiText: {
     fontSize: 10,
+  },
+  activityBadge: {
+    position: "absolute",
+    top: -8,
+    left: -8,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 1.5,
+    borderColor: "#1C1C1E",
+    backgroundColor: "#1C1C1E",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 2.0,
+    elevation: 4,
   },
   onlineDot: {
     position: "absolute",

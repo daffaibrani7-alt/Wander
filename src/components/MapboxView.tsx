@@ -40,7 +40,8 @@ function createMarkerHtml(
   batteryLevel: number,
   isCharging: boolean,
   ghostMode: "precise" | "blurry" | "frozen",
-  isMe: boolean
+  isMe: boolean,
+  activity?: "online" | "idle" | "driving" | "sleeping"
 ): string {
   const accentColor = isMe ? COLORS.cyan : "#ff007f";
   const glowShadow = isMe
@@ -64,6 +65,28 @@ function createMarkerHtml(
       ">
         <span style="font-size: 22px;">${avatarEmoji}</span>
         
+        <!-- Activity Status Badge -->
+        ${activity && activity !== "online" ? `
+          <div style="
+            position: absolute;
+            top: -4px;
+            left: -4px;
+            background: #121216;
+            border: 1px solid rgba(255,255,255,0.2);
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+          ">
+            ${activity === "driving" ? "🚗" : ""}
+            ${activity === "sleeping" ? "😴" : ""}
+            ${activity === "idle" ? "⏳" : ""}
+          </div>
+        ` : ""}
+
         <!-- Battery Badge -->
         <div style="
           position: absolute;
@@ -261,7 +284,8 @@ const MapboxViewComponent = forwardRef<MapboxViewRef, MapboxViewProps>(
         userBatteryLevel,
         userIsCharging,
         userGhostMode,
-        true
+        true,
+        userIsCharging && userBatteryLevel === 100 ? "online" : undefined
       );
 
       const meIcon = L.divIcon({
@@ -290,7 +314,8 @@ const MapboxViewComponent = forwardRef<MapboxViewRef, MapboxViewProps>(
             friend.batteryLevel,
             friend.isCharging,
             friend.ghostMode,
-            false
+            false,
+            friend.activity
           );
 
           const fIcon = L.divIcon({

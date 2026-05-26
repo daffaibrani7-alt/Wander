@@ -10,6 +10,7 @@ export interface FriendLocation {
   batteryLevel: number;
   isCharging: boolean;
   ghostMode: "precise" | "blurry" | "frozen";
+  activity?: "online" | "idle" | "driving" | "sleeping";
   distanceText?: string;
   statusText?: string;
   updatedAt: string;
@@ -27,6 +28,7 @@ const MOCK_FRIENDS: FriendLocation[] = [
     batteryLevel: 87,
     isCharging: false,
     ghostMode: "precise",
+    activity: "driving",
     statusText: "Active 2m ago",
     updatedAt: "Baru saja",
   },
@@ -40,6 +42,7 @@ const MOCK_FRIENDS: FriendLocation[] = [
     batteryLevel: 34,
     isCharging: true,
     ghostMode: "frozen",
+    activity: "sleeping",
     statusText: "Frozen (2 hours ago)",
     updatedAt: "2 jam lalu",
   },
@@ -55,6 +58,7 @@ const MOCK_FRIENDS: FriendLocation[] = [
     batteryLevel: 14,
     isCharging: false,
     ghostMode: "blurry",
+    activity: "idle",
     statusText: "Blurry (1.5km radius)",
     updatedAt: "Aktif",
   }
