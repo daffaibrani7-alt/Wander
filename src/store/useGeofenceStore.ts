@@ -24,7 +24,7 @@ export interface GeofenceRegion {
   latitude: number;
   longitude: number;
   radius: number; // in meters
-  type: "home" | "work" | "school" | "custom";
+  type: "home" | "work" | "school" | "cafe" | "custom";
   isInside: boolean;
 }
 

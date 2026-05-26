@@ -9,8 +9,8 @@ interface MapMarkerProps {
   batteryLevel: number;
   isCharging: boolean;
   ghostMode: "precise" | "blurry" | "frozen";
-  activity?: "online" | "idle" | "driving" | "sleeping";
-  geofence?: "home" | "work" | "school" | null; // added field
+  activity?: "online" | "idle" | "driving" | "sleeping" | "walking" | "traveling" | "home" | "work" | "school" | "cafe";
+  geofence?: "home" | "work" | "school" | "cafe" | "custom" | null; // updated types
   isMe?: boolean;
   isOnline?: boolean;
 }
@@ -39,12 +39,19 @@ export function MapMarker({
     }).start();
   }, []);
   
-  // Decide glowing border color
+  // Decide glowing border color based on status activity dynamically (Zenly style!)
   const getGlowColor = () => {
     if (isMe) return "#00F0FF"; // Cyan for user
     if (ghostMode === "frozen") return "#8A3FFC"; // Purple for Frozen
     if (ghostMode === "blurry") return "#FF5B99"; // Pink for Blurry
-    return "#2BE080"; // Neon Green for Precise/Active Friends
+    
+    // Activity-based dynamic glows
+    if (activity === "driving") return "#FF8A00"; // Orange
+    if (activity === "sleeping") return "#8A3FFC"; // Dark Purple
+    if (activity === "walking") return "#FF5B99"; // Hot Pink
+    if (activity === "traveling") return "#00F0FF"; // Bright Cyan
+    
+    return "#2BE080"; // Neon Green for default Active/Online
   };
 
   const glowColor = getGlowColor();
@@ -73,11 +80,14 @@ export function MapMarker({
         {(geofence || (activity && activity !== "online")) && (
           <View style={styles.activityBadge}>
             <Text style={{ fontSize: 10 }}>
-              {geofence === "home" && "🏡"}
-              {geofence === "work" && "💼"}
-              {geofence === "school" && "🏫"}
+              {geofence === "home" || activity === "home" ? "🏡" : ""}
+              {geofence === "work" || activity === "work" ? "💼" : ""}
+              {geofence === "school" || activity === "school" ? "🏫" : ""}
+              {geofence === "cafe" || activity === "cafe" ? "☕" : ""}
               {!geofence && activity === "driving" && "🚗"}
+              {!geofence && activity === "walking" && "🚶"}
               {!geofence && activity === "sleeping" && "😴"}
+              {!geofence && activity === "traveling" && "✈️"}
               {!geofence && activity === "idle" && "⏳"}
             </Text>
           </View>

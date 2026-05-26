@@ -27,6 +27,8 @@ export interface MapboxViewProps {
   userBatteryLevel?: number;
   userIsCharging?: boolean;
   userGhostMode?: "precise" | "blurry" | "frozen";
+  userActivity?: "online" | "idle" | "driving" | "sleeping" | "walking" | "traveling" | "home" | "work" | "school" | "cafe";
+  userGeofence?: "home" | "work" | "school" | "cafe" | "custom" | null;
   followUser?: boolean;
   onMapPan?: () => void;
   children?: React.ReactNode;
@@ -41,13 +43,21 @@ function createMarkerHtml(
   isCharging: boolean,
   ghostMode: "precise" | "blurry" | "frozen",
   isMe: boolean,
-  activity?: "online" | "idle" | "driving" | "sleeping",
-  geofence?: "home" | "work" | "school" | null
+  activity?: "online" | "idle" | "driving" | "sleeping" | "walking" | "traveling" | "home" | "work" | "school" | "cafe",
+  geofence?: "home" | "work" | "school" | "cafe" | "custom" | null
 ): string {
-  const accentColor = isMe ? COLORS.cyan : "#ff007f";
-  const glowShadow = isMe
-    ? "0 0 15px rgba(0, 240, 255, 0.65)"
-    : "0 0 15px rgba(255, 0, 127, 0.65)";
+  // Determine dynamic border colors matching native MapMarker.tsx
+  let accentColor = isMe ? COLORS.cyan : "#2BE080";
+  if (!isMe) {
+    if (ghostMode === "frozen") accentColor = "#8A3FFC";
+    else if (ghostMode === "blurry") accentColor = "#FF5B99";
+    else if (activity === "driving") accentColor = "#FF8A00";
+    else if (activity === "sleeping") accentColor = "#8A3FFC";
+    else if (activity === "walking") accentColor = "#FF5B99";
+    else if (activity === "traveling") accentColor = "#00F0FF";
+  }
+
+  const glowShadow = `0 0 15px ${accentColor}`;
 
   return `
     <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; user-select: none;">
@@ -82,11 +92,14 @@ function createMarkerHtml(
             justify-content: center;
             font-size: 10px;
           ">
-            ${geofence === "home" ? "🏡" : ""}
-            ${geofence === "work" ? "💼" : ""}
-            ${geofence === "school" ? "🏫" : ""}
+            ${geofence === "home" || activity === "home" ? "🏡" : ""}
+            ${geofence === "work" || activity === "work" ? "💼" : ""}
+            ${geofence === "school" || activity === "school" ? "🏫" : ""}
+            ${geofence === "cafe" || activity === "cafe" ? "☕" : ""}
             ${!geofence && activity === "driving" ? "🚗" : ""}
+            ${!geofence && activity === "walking" ? "🚶" : ""}
             ${!geofence && activity === "sleeping" ? "😴" : ""}
+            ${!geofence && activity === "traveling" ? "✈️" : ""}
             ${!geofence && activity === "idle" ? "⏳" : ""}
           </div>
         ` : ""}
@@ -139,6 +152,8 @@ const MapboxViewComponent = forwardRef<MapboxViewRef, MapboxViewProps>(
       userBatteryLevel = 100,
       userIsCharging = false,
       userGhostMode = "precise",
+      userActivity = "online",
+      userGeofence = null,
       followUser = true,
       onMapPan,
       children,
@@ -289,8 +304,8 @@ const MapboxViewComponent = forwardRef<MapboxViewRef, MapboxViewProps>(
         userIsCharging,
         userGhostMode,
         true,
-        userIsCharging && userBatteryLevel === 100 ? "online" : undefined,
-        undefined
+        userActivity,
+        userGeofence
       );
 
       const meIcon = L.divIcon({

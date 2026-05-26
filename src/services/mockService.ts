@@ -10,8 +10,8 @@ export interface FriendLocation {
   batteryLevel: number;
   isCharging: boolean;
   ghostMode: "precise" | "blurry" | "frozen";
-  activity?: "online" | "idle" | "driving" | "sleeping";
-  geofence?: "home" | "work" | "school" | null; // added for geofencing status
+  activity?: "online" | "idle" | "driving" | "sleeping" | "walking" | "traveling" | "home" | "work" | "school" | "cafe";
+  geofence?: "home" | "work" | "school" | "cafe" | "custom" | null; // added for geofencing status
   distanceText?: string;
   statusText?: string;
   updatedAt: string;

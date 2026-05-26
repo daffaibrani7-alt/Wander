@@ -36,6 +36,10 @@ import { useThemeStore } from "../../src/store/useThemeStore";
 import { useAuthStore } from "../../src/store/useAuthStore";
 import { useFriendStore } from "../../src/store/useFriendStore";
 import { useGeofenceStore } from "../../src/store/useGeofenceStore";
+import { usePresenceStore } from "../../src/store/usePresenceStore";
+import { useActivityDetection } from "../../src/hooks/useActivityDetection";
+import { DynamicIslandAlert } from "../../src/components/DynamicIslandAlert";
+import { FriendCarousel } from "../../src/components/FriendCarousel";
 
 type GhostModeType = "precise" | "blurry" | "frozen";
 
@@ -55,9 +59,22 @@ export default function HomeMapScreen() {
   const [selectedFriendUid, setSelectedFriendUid] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearchFocused, setIsSearchFocused] = useState(false);
-  const [alertText, setAlertText] = useState<string | null>(null);
   const [showGhostPicker, setShowGhostPicker] = useState(false);
   const [followUser, setFollowUser] = useState(true);
+
+  // Dynamic Island Alert State
+  const [islandAlert, setIslandAlert] = useState({
+    visible: false,
+    title: "Notifikasi Wander",
+    body: "",
+    emoji: "✨",
+  });
+
+  // Self Geofence regions
+  const { regions, radiusConfig, initializeNotifications } = useGeofenceStore();
+
+  // Automatic Self Activity Detection
+  const selfActivity = useActivityDetection();
 
   // Live Location Store
   const {
@@ -72,8 +89,6 @@ export default function HomeMapScreen() {
     listenToFriends,
   } = useLocationStore();
 
-  const { radiusConfig, initializeNotifications } = useGeofenceStore();
-
   const { friends: activeFriends, initializeFriendListener } = useFriendStore();
 
   // Dengarkan relasi pertemanan secara real-time
@@ -84,11 +99,32 @@ export default function HomeMapScreen() {
     }
   }, [userProfile?.uid]);
 
+  // Dengarkan presence dan aktivitas teman secara real-time (Firestore/Simulation)
+  const listenToFriendsPresenceAndActivities = usePresenceStore((s) => s.listenToFriendsPresenceAndActivities);
+  useEffect(() => {
+    const friendUids = activeFriends.map((f) => f.uid);
+    // Tambahkan UID simulasi agar presence mock-friends terdeteksi di simulasi
+    const uidsToListen = [...friendUids, "sim-1", "sim-2", "sim-3"];
+    const unsubscribe = listenToFriendsPresenceAndActivities(uidsToListen);
+    return () => unsubscribe();
+  }, [activeFriends]);
+
+  const friendPresences = usePresenceStore((s) => s.friendPresences);
+
   // Saring koordinat teman: tampilkan hanya teman yang terdaftar sebagai 'accepted', 
-  // atau teman mock simulasi (berawalan 'mock-') agar peta tidak kosong
+  // atau teman mock simulasi (berawalan 'sim-' atau 'mock-') dan perkaya dengan status kehadiran real-time
   const friends = allFriendsLocations.filter(
-    (loc) => activeFriends.some((f) => f.uid === loc.uid) || loc.uid.startsWith("mock-")
-  );
+    (loc) => activeFriends.some((f) => f.uid === loc.uid) || loc.uid.startsWith("sim-") || loc.uid.startsWith("mock-")
+  ).map((friend) => {
+    const presence = friendPresences[friend.uid];
+    return {
+      ...friend,
+      activity: presence?.activity || friend.activity || "online",
+      isOnline: presence?.status === "online" || presence?.status === "idle",
+      batteryLevel: presence?.batteryLevel !== undefined ? presence?.batteryLevel : friend.batteryLevel,
+      isCharging: presence?.isCharging !== undefined ? presence?.isCharging : friend.isCharging,
+    };
+  });
 
   const selectedFriend = friends.find((f) => f.uid === selectedFriendUid) || null;
 
@@ -116,7 +152,6 @@ export default function HomeMapScreen() {
   }, [selectedFriend?.latitude, selectedFriend?.longitude]);
 
   // Animations
-  const alertAnim = useRef(new Animated.Value(-150)).current;
   const slideAnim = useRef(new Animated.Value(height)).current;
   const searchWidthAnim = useRef(new Animated.Value(1)).current;
   const ghostPickerAnim = useRef(new Animated.Value(0)).current;
@@ -135,14 +170,15 @@ export default function HomeMapScreen() {
 
   const currentGhostMeta = GHOST_MODES.find((g) => g.mode === ghostMode)!;
 
-  // ── Alert Banner ──────────────────────────────────────────────────────────
-  const triggerAlert = (text: string) => {
-    setAlertText(text);
-    Animated.sequence([
-      Animated.spring(alertAnim, { toValue: 0, useNativeDriver: true, tension: 40, friction: 7 }),
-      Animated.delay(3200),
-      Animated.timing(alertAnim, { toValue: -150, duration: 280, useNativeDriver: true }),
-    ]).start(() => setAlertText(null));
+  // ── Smart Dynamic Island Alert Trigger ─────────────────────────────────────
+  const triggerAlert = (text: string, title = "Notifikasi Wander", emoji = "✨") => {
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+    setIslandAlert({
+      visible: true,
+      title,
+      body: text,
+      emoji,
+    });
   };
 
   // ── Friend selection ──────────────────────────────────────────────────────
@@ -194,7 +230,8 @@ export default function HomeMapScreen() {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
     setGhostMode(mode);
     const label = GHOST_MODES.find((g) => g.mode === mode)?.label;
-    triggerAlert(`Mode lokasi: ${label} ${GHOST_MODES.find((g) => g.mode === mode)?.icon}`);
+    const icon = GHOST_MODES.find((g) => g.mode === mode)?.icon || "📡";
+    triggerAlert(`Lokasi disetel ke ${label}`, "Ghost Mode Aktif", icon);
     toggleGhostPicker();
   };
 
@@ -230,6 +267,8 @@ export default function HomeMapScreen() {
         userBatteryLevel={batteryLevel}
         userIsCharging={isCharging}
         userGhostMode={ghostMode}
+        userActivity={selfActivity}
+        userGeofence={regions.find((r) => r.isInside)?.type}
         followUser={followUser}
         onMapPan={() => setFollowUser(false)}
         style={StyleSheet.absoluteFill}
@@ -374,17 +413,14 @@ export default function HomeMapScreen() {
         </GlassCard>
       </Animated.View>
 
-      {/* ── Alert Banner ── */}
-      {alertText && (
-        <Animated.View
-          style={[styles.alertBanner, { transform: [{ translateY: alertAnim }] }]}
-          pointerEvents="none"
-        >
-          <GlassCard style={[styles.alertCard, { borderColor: COLORS.cyan + "40" }]}>
-            <Text style={[styles.alertText, { color: theme.text }]}>{alertText}</Text>
-          </GlassCard>
-        </Animated.View>
-      )}
+      {/* ── Dynamic Island Alert ── */}
+      <DynamicIslandAlert
+        visible={islandAlert.visible}
+        title={islandAlert.title}
+        body={islandAlert.body}
+        emoji={islandAlert.emoji}
+        onDismiss={() => setIslandAlert((prev) => ({ ...prev, visible: false }))}
+      />
 
       {/* ── Search results dropdown ── */}
       {isSearchFocused && searchQuery.length > 0 && (
@@ -524,8 +560,12 @@ export default function HomeMapScreen() {
                       <Pressable
                         key={r}
                         onPress={() => {
-                          useGeofenceStore.getState().updateRegionRadius(selectedFriend.geofence!, r);
-                          triggerAlert(`Radius geofence ${selectedFriend.geofence === "home" ? "Rumah" : selectedFriend.geofence === "work" ? "Kantor" : "Sekolah"} disetel ke ${r}m! 📏`);
+                          const gf = selectedFriend.geofence;
+                          if (gf === "home" || gf === "work" || gf === "school") {
+                            useGeofenceStore.getState().updateRegionRadius(gf, r);
+                          }
+                          const placeName = gf === "home" ? "Rumah" : gf === "work" ? "Kantor" : gf === "school" ? "Sekolah" : "Tempat";
+                          triggerAlert(`Radius geofence ${placeName} disetel ke ${r}m!`, "Saved Places", "📏");
                         }}
                         style={[
                           styles.radiusBtn,
@@ -547,8 +587,8 @@ export default function HomeMapScreen() {
               <Pressable
                 id="buzz-button"
                 onPress={() => {
-                  triggerAlert(`⚡️ Buzz dikirim ke ${selectedFriend.displayName}!`);
-                  setTimeout(() => triggerAlert(`⚡️ ${selectedFriend.displayName} membalas!`), 2000);
+                  triggerAlert(`Buzz dikirim ke ${selectedFriend.displayName}!`, "Zenly Buzz", "⚡️");
+                  setTimeout(() => triggerAlert(`${selectedFriend.displayName} membalas Buzz Anda!`, "Zenly Buzz", "⚡️"), 2000);
                   handleClosePanel();
                 }}
                 style={[styles.actionBtn, { backgroundColor: COLORS.yellow }]}
@@ -586,32 +626,15 @@ export default function HomeMapScreen() {
       )}
 
 
-      {/* ── Friends quick list (bottom right) ── */}
-      <View style={styles.friendsQuick} pointerEvents="box-none">
-        {friends.slice(0, 4).map((f, i) => (
-          <Pressable
-            key={f.uid}
-            id={`quick-friend-${f.uid}`}
-            onPress={() => handleSelectFriend(f)}
-            style={[
-              styles.quickAvatarBtn,
-              {
-                backgroundColor: isDark ? "rgba(18,18,22,0.88)" : "rgba(255,255,255,0.9)",
-                borderColor: isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.07)",
-                marginBottom: i < friends.length - 1 ? 8 : 0,
-              },
-            ]}
-          >
-            <Text style={{ fontSize: 18 }}>{f.avatarEmoji}</Text>
-            <View
-              style={[
-                styles.quickDot,
-                { backgroundColor: f.ghostMode === "frozen" ? COLORS.purple : COLORS.green },
-              ]}
-            />
-          </Pressable>
-        ))}
-      </View>
+      {/* ── Premium Friend Carousel ── */}
+      {!selectedFriend && (
+        <FriendCarousel
+          friends={friends}
+          selectedFriendUid={selectedFriendUid}
+          onFriendSelect={handleSelectFriend}
+          isDark={isDark}
+        />
+      )}
     </View>
   );
 }

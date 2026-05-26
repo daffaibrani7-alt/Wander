@@ -28,6 +28,8 @@ export interface MapboxViewProps {
   userBatteryLevel?: number;
   userIsCharging?: boolean;
   userGhostMode?: "precise" | "blurry" | "frozen";
+  userActivity?: "online" | "idle" | "driving" | "sleeping" | "walking" | "traveling" | "home" | "work" | "school" | "cafe";
+  userGeofence?: "home" | "work" | "school" | "cafe" | "custom" | null;
   followUser?: boolean;
   onMapPan?: () => void;
   children?: React.ReactNode;
@@ -302,6 +304,8 @@ function FallbackMapView({
   userBatteryLevel = 100,
   userIsCharging = false,
   userGhostMode = "precise",
+  userActivity = "online",
+  userGeofence = null,
   mapRef,
 }: {
   isDark: boolean;
@@ -316,6 +320,8 @@ function FallbackMapView({
   userBatteryLevel?: number;
   userIsCharging?: boolean;
   userGhostMode?: "precise" | "blurry" | "frozen";
+  userActivity?: "online" | "idle" | "driving" | "sleeping" | "walking" | "traveling" | "home" | "work" | "school" | "cafe";
+  userGeofence?: "home" | "work" | "school" | "cafe" | "custom" | null;
   mapRef: React.RefObject<MapView | null>;
 }) {
   const isInitial = useRef(true);
@@ -379,6 +385,8 @@ function FallbackMapView({
             batteryLevel={userBatteryLevel}
             isCharging={userIsCharging}
             ghostMode={userGhostMode}
+            activity={userActivity}
+            geofence={userGeofence}
             isMe={true}
           />
         </RNMarker>
@@ -448,6 +456,8 @@ const MapboxViewComponent = forwardRef<MapboxViewRef, MapboxViewProps>(
       userBatteryLevel = 100,
       userIsCharging = false,
       userGhostMode = "precise",
+      userActivity = "online",
+      userGeofence = null,
       followUser = true,
       onMapPan,
       children,
@@ -491,6 +501,8 @@ const MapboxViewComponent = forwardRef<MapboxViewRef, MapboxViewProps>(
             userBatteryLevel={userBatteryLevel}
             userIsCharging={userIsCharging}
             userGhostMode={userGhostMode}
+            userActivity={userActivity}
+            userGeofence={userGeofence}
             mapRef={fallbackMapRef}
           />
         </View>
@@ -547,6 +559,8 @@ const MapboxViewComponent = forwardRef<MapboxViewRef, MapboxViewProps>(
                 batteryLevel={userBatteryLevel}
                 isCharging={userIsCharging}
                 ghostMode={userGhostMode}
+                activity={userActivity}
+                geofence={userGeofence}
                 isMe={true}
               />
             </MarkerView>
