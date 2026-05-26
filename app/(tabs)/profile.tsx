@@ -23,11 +23,15 @@ export default function ProfileScreen() {
     friends,
     incomingRequests,
     outgoingRequests,
+    blockedUsers,
     searchResults,
     searchUsersAction,
     sendRequestAction,
     acceptRequestAction,
     rejectRequestAction,
+    removeFriendAction,
+    blockUserAction,
+    unblockUserAction,
     initializeFriendListener,
   } = useFriendStore();
 
@@ -199,17 +203,49 @@ export default function ProfileScreen() {
                     <Text style={[styles.resultName, { color: theme.text }]}>{item.displayName}</Text>
                     <Text style={[styles.resultEmail, { color: theme.textMuted }]} numberOfLines={1}>{item.email}</Text>
                   </View>
-                  <Pressable
-                    onPress={() => user?.uid && rejectRequestAction(user.uid, item.uid)}
-                    style={styles.unfriendBtn}
-                  >
-                    <Text style={{ color: COLORS.pink, fontWeight: "800", fontSize: 12 }}>Hapus</Text>
-                  </Pressable>
+                  <View style={{ flexDirection: "row", gap: 6 }}>
+                    <Pressable
+                      onPress={() => user?.uid && removeFriendAction(user.uid, item.uid)}
+                      style={styles.unfriendBtn}
+                    >
+                      <Text style={{ color: COLORS.pink, fontWeight: "800", fontSize: 12 }}>Hapus</Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => user?.uid && blockUserAction(user.uid, item.uid)}
+                      style={styles.unfriendBtn}
+                    >
+                      <Text style={{ color: COLORS.purple, fontWeight: "800", fontSize: 12 }}>Blokir</Text>
+                    </Pressable>
+                  </View>
                 </View>
               ))}
             </View>
           )}
         </GlassCard>
+
+        {/* Card 4: Pengguna Diblokir */}
+        {blockedUsers.length > 0 && (
+          <GlassCard style={styles.friendCard}>
+            <Text style={[styles.cardTitle, { color: theme.text }]}>Pengguna Diblokir ({blockedUsers.length})</Text>
+            <View style={styles.friendsList}>
+              {blockedUsers.map((item) => (
+                <View key={item.uid} style={styles.friendListItem}>
+                  <Text style={styles.resultEmoji}>{item.avatarEmoji || "🦊"}</Text>
+                  <View style={{ flex: 1, marginLeft: 12 }}>
+                    <Text style={[styles.resultName, { color: theme.text }]}>{item.displayName}</Text>
+                    <Text style={[styles.resultEmail, { color: theme.textMuted }]} numberOfLines={1}>{item.email}</Text>
+                  </View>
+                  <Pressable
+                    onPress={() => user?.uid && unblockUserAction(user.uid, item.uid)}
+                    style={styles.unfriendBtn}
+                  >
+                    <Text style={{ color: COLORS.cyan, fontWeight: "800", fontSize: 12 }}>Buka Blokir</Text>
+                  </Pressable>
+                </View>
+              ))}
+            </View>
+          </GlassCard>
+        )}
 
         {/* Dynamic Display Settings */}
         <Text style={[styles.sectionTitle, { color: theme.textMuted }]}>Tampilan & Tema</Text>
