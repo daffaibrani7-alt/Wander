@@ -77,7 +77,20 @@ const isExpoGo =
   Constants?.appOwnership === "expo" ||
   Constants?.executionEnvironment === ExecutionEnvironment.StoreClient;
 
-const isMapboxAvailable = !!NativeMapView && !isExpoGo;
+// Check if Mapbox token is still a placeholder
+const MAPBOX_TOKEN = "pk.eyJ1IjoiZGFmZmFpYnJhbmk3IiwiYSI6ImNtYjVvZ3FxaTBoaHkyanF4eDZ5M2xia3QifQ.PLACEHOLDER_PUBLIC_TOKEN";
+const isPlaceholderToken = MAPBOX_TOKEN.includes("PLACEHOLDER");
+
+// Force fallback to react-native-maps if running in Expo Go or if a real Mapbox token isn't configured yet
+const isMapboxAvailable = !!NativeMapView && !isExpoGo && !isPlaceholderToken;
+
+console.log(
+  "[Wander MapboxView] Initialization Details:",
+  `\n - Native SDK Loaded: ${!!NativeMapView}`,
+  `\n - Expo Go Environment: ${isExpoGo}`,
+  `\n - Token is Placeholder: ${isPlaceholderToken}`,
+  `\n -> Target Renderer: ${isMapboxAvailable ? "Native Mapbox SDK" : "react-native-maps Fallback"}`
+);
 
 function AnimatedRadarFriend({
   friend,
@@ -216,8 +229,10 @@ const LIGHT_MAP_STYLE = [
 const AnimatedRNMarker = Animated.createAnimatedComponent(RNMarker);
 
 function SmoothFallbackMarker({ friend }: { friend: FriendLocation }) {
-  const animatedLat = useRef(new Animated.Value(friend.latitude)).current;
-  const animatedLon = useRef(new Animated.Value(friend.longitude)).current;
+  const safeLat = typeof friend.latitude === "number" && !isNaN(friend.latitude) ? friend.latitude : -6.2088;
+  const safeLng = typeof friend.longitude === "number" && !isNaN(friend.longitude) ? friend.longitude : 106.8456;
+  const animatedLat = useRef(new Animated.Value(safeLat)).current;
+  const animatedLon = useRef(new Animated.Value(safeLng)).current;
   const isInitial = useRef(true);
 
   useEffect(() => {
@@ -227,19 +242,19 @@ function SmoothFallbackMarker({ friend }: { friend: FriendLocation }) {
     }
     Animated.parallel([
       Animated.spring(animatedLat, {
-        toValue: friend.latitude,
+        toValue: safeLat,
         friction: 8,
         tension: 30,
         useNativeDriver: false,
       }),
       Animated.spring(animatedLon, {
-        toValue: friend.longitude,
+        toValue: safeLng,
         friction: 8,
         tension: 30,
         useNativeDriver: false,
       }),
     ]).start();
-  }, [friend.latitude, friend.longitude]);
+  }, [safeLat, safeLng]);
 
   return (
     <AnimatedRNMarker
@@ -292,6 +307,9 @@ function FallbackMapView({
 }) {
   const isInitial = useRef(true);
 
+  const safeLat = typeof latitude === "number" && !isNaN(latitude) ? latitude : -6.2088;
+  const safeLng = typeof longitude === "number" && !isNaN(longitude) ? longitude : 106.8456;
+
   // Smooth follow user in fallback map too!
   useEffect(() => {
     if (isInitial.current) {
@@ -300,22 +318,22 @@ function FallbackMapView({
     }
     mapRef.current?.animateToRegion(
       {
-        latitude,
-        longitude,
+        latitude: safeLat,
+        longitude: safeLng,
         latitudeDelta: 0.015,
         longitudeDelta: 0.015,
       },
       800
     );
-  }, [latitude, longitude]);
+  }, [safeLat, safeLng]);
 
   return (
     <MapView
       ref={mapRef}
       style={StyleSheet.absoluteFill}
       initialRegion={{
-        latitude,
-        longitude,
+        latitude: safeLat,
+        longitude: safeLng,
         latitudeDelta: 0.015,
         longitudeDelta: 0.015,
       }}
@@ -329,9 +347,9 @@ function FallbackMapView({
       scrollEnabled={true}
     >
       {/* Render Me marker */}
-      {latitude && longitude && (
+      {typeof safeLat === "number" && typeof safeLng === "number" && (
         <RNMarker
-          coordinate={{ latitude, longitude }}
+          coordinate={{ latitude: safeLat, longitude: safeLng }}
           anchor={{ x: 0.5, y: 1.0 }}
           tracksViewChanges={false}
         >
