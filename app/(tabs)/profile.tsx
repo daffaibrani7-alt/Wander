@@ -43,8 +43,8 @@ export default function ProfileScreen() {
               <Text style={styles.avatarEmoji}>{selectedEmoji}</Text>
             </View>
             <View style={styles.userInfo}>
-              <Text style={[styles.userName, { color: theme.text }]}>{user?.displayName || "Daffa Ibrani"}</Text>
-              <Text style={[styles.userPhone, { color: theme.textMuted }]}>{user?.phone || "+62 812-3456-7890"}</Text>
+              <Text style={[styles.userName, { color: theme.text }]}>{user?.displayName || "Wanderer"}</Text>
+              <Text style={[styles.userPhone, { color: theme.textMuted }]}>{user?.email || "Belum ada email"}</Text>
             </View>
           </View>
 

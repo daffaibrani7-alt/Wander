@@ -1,52 +1,140 @@
 import { create } from "zustand";
+import {
+  signInWithGoogle,
+  signInWithApple,
+  signOut,
+  onAuthStateChanged,
+  configureGoogleSignIn,
+} from "../services/authService";
+import {
+  createOrUpdateUser,
+  type UserProfile,
+} from "../services/userService";
 
-interface UserProfile {
-  uid: string;
-  displayName: string;
-  avatarEmoji: string;
-  phone: string;
-}
-
+// ─── State Types ───────────────────────────────────────────────────
 interface AuthState {
   isAuthenticated: boolean;
   isLoading: boolean;
+  isInitialized: boolean;
   user: UserProfile | null;
-  login: (username: string) => Promise<void>;
+  error: string | null;
+
+  // Actions
+  initializeAuth: () => () => void;
+  loginWithGoogle: () => Promise<void>;
+  loginWithApple: () => Promise<void>;
   logout: () => Promise<void>;
   setLoading: (loading: boolean) => void;
+  clearError: () => void;
 }
 
-export const useAuthStore = create<AuthState>((set) => ({
+// ─── Store ─────────────────────────────────────────────────────────
+export const useAuthStore = create<AuthState>((set, get) => ({
   isAuthenticated: false,
   isLoading: false,
+  isInitialized: false,
   user: null,
+  error: null,
 
-  login: async (username: string) => {
-    set({ isLoading: true });
-    // Simulate iOS network loading delay for sleek feel
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-    
-    set({
-      isAuthenticated: true,
-      isLoading: false,
-      user: {
-        uid: "user-me",
-        displayName: username || "Me (You)",
-        avatarEmoji: "🦊",
-        phone: "+62 812-3456-7890",
-      },
+  // Subscribe to Firebase auth state changes for persistent session
+  initializeAuth: () => {
+    configureGoogleSignIn();
+
+    const unsubscribe = onAuthStateChanged(async (firebaseUser) => {
+      if (firebaseUser) {
+        try {
+          const profile = await createOrUpdateUser(firebaseUser);
+          set({
+            isAuthenticated: true,
+            user: profile,
+            isInitialized: true,
+            isLoading: false,
+          });
+        } catch (error) {
+          console.error("❌ Error syncing user profile:", error);
+          set({
+            isAuthenticated: true,
+            user: {
+              uid: firebaseUser.uid,
+              displayName: firebaseUser.displayName || "Wanderer",
+              email: firebaseUser.email,
+              photoURL: firebaseUser.photoURL,
+              provider: "unknown",
+              avatarEmoji: "🦊",
+              createdAt: null,
+              lastSeen: null,
+            },
+            isInitialized: true,
+            isLoading: false,
+          });
+        }
+      } else {
+        set({
+          isAuthenticated: false,
+          user: null,
+          isInitialized: true,
+          isLoading: false,
+        });
+      }
     });
+
+    return unsubscribe;
+  },
+
+  loginWithGoogle: async () => {
+    set({ isLoading: true, error: null });
+    try {
+      const firebaseUser = await signInWithGoogle();
+      const profile = await createOrUpdateUser(firebaseUser);
+      set({
+        isAuthenticated: true,
+        user: profile,
+        isLoading: false,
+      });
+    } catch (error: any) {
+      const message = error.message || "Login gagal";
+      if (message === "CANCELLED") {
+        set({ isLoading: false });
+        return;
+      }
+      set({ isLoading: false, error: message });
+    }
+  },
+
+  loginWithApple: async () => {
+    set({ isLoading: true, error: null });
+    try {
+      const firebaseUser = await signInWithApple();
+      const profile = await createOrUpdateUser(firebaseUser);
+      set({
+        isAuthenticated: true,
+        user: profile,
+        isLoading: false,
+      });
+    } catch (error: any) {
+      const message = error.message || "Login gagal";
+      if (message === "CANCELLED") {
+        set({ isLoading: false });
+        return;
+      }
+      set({ isLoading: false, error: message });
+    }
   },
 
   logout: async () => {
-    set({ isLoading: true });
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    set({
-      isAuthenticated: false,
-      isLoading: false,
-      user: null,
-    });
+    set({ isLoading: true, error: null });
+    try {
+      await signOut();
+      set({
+        isAuthenticated: false,
+        user: null,
+        isLoading: false,
+      });
+    } catch (error: any) {
+      set({ isLoading: false, error: error.message || "Logout gagal" });
+    }
   },
 
   setLoading: (loading: boolean) => set({ isLoading: loading }),
+  clearError: () => set({ error: null }),
 }));

@@ -3,11 +3,19 @@ import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { View, StyleSheet } from "react-native";
 import { useThemeStore } from "../src/store/useThemeStore";
+import { useAuthStore } from "../src/store/useAuthStore";
 import { COLORS } from "../src/theme/colors";
 
 export default function RootLayout() {
   const isDark = useThemeStore((state) => state.isDark);
   const theme = COLORS.get(isDark);
+  const initializeAuth = useAuthStore((state) => state.initializeAuth);
+
+  // Initialize Firebase auth listener on mount
+  useEffect(() => {
+    const unsubscribe = initializeAuth();
+    return () => unsubscribe();
+  }, []);
 
   return (
     <View style={[styles.container, { backgroundColor: theme.bg }]}>

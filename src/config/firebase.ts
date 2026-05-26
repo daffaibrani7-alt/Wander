@@ -1,23 +1,40 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
-import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from "firebase/firestore";
+import {
+  initializeAuth,
+  getAuth,
+  // @ts-ignore – react-native persistence
+  getReactNativePersistence,
+} from "firebase/auth";
+import {
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+} from "firebase/firestore";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 // Safe fallback for Firebase Config
 const firebaseConfig = {
   apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY || "mock-api-key",
-  authDomain: process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN || "mock-auth.firebaseapp.com",
-  projectId: process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID || "mock-project-id",
-  storageBucket: process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET || "mock.appspot.com",
-  messagingSenderId: process.env.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || "mock-sender-id",
+  authDomain:
+    process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN ||
+    "mock-auth.firebaseapp.com",
+  projectId:
+    process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID || "mock-project-id",
+  storageBucket:
+    process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET || "mock.appspot.com",
+  messagingSenderId:
+    process.env.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || "mock-sender-id",
   appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID || "mock-app-id",
 };
 
 // Check if credentials are valid (i.e. not placeholders)
-export const isFirebaseConfigured = 
+export const isFirebaseConfigured =
   process.env.EXPO_PUBLIC_FIREBASE_API_KEY !== undefined &&
   process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID !== undefined;
 
 let app;
 let db: any = null;
+let auth: any = null;
 
 if (isFirebaseConfigured) {
   try {
@@ -26,6 +43,17 @@ if (isFirebaseConfigured) {
     } else {
       app = getApp();
     }
+
+    // Initialize Auth with React Native persistence
+    try {
+      auth = initializeAuth(app, {
+        persistence: getReactNativePersistence(AsyncStorage),
+      });
+    } catch {
+      // Already initialized – get existing instance
+      auth = getAuth(app);
+    }
+
     db = initializeFirestore(app, {
       localCache: persistentLocalCache({
         tabManager: persistentMultipleTabManager(),
@@ -35,9 +63,12 @@ if (isFirebaseConfigured) {
   } catch (error) {
     console.error("⚠️ Firebase initialization failed:", error);
     db = null;
+    auth = null;
   }
 } else {
-  console.log("ℹ️ Running in Wander Simulation Engine mode (Firebase unconfigured).");
+  console.log(
+    "ℹ️ Running in Wander Simulation Engine mode (Firebase unconfigured)."
+  );
 }
 
-export { db };
+export { db, auth };

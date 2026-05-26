@@ -7,12 +7,14 @@ import { useThemeStore } from "../src/store/useThemeStore";
 
 export default function IndexGateway() {
   const router = useRouter();
-  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+  const { isAuthenticated, isInitialized } = useAuthStore();
   const isDark = useThemeStore((state) => state.isDark);
   const theme = COLORS.get(isDark);
 
   useEffect(() => {
-    // Elegant redirect sequence: index redirects to Splash initially
+    // Wait until Firebase auth state is resolved
+    if (!isInitialized) return;
+
     const timer = setTimeout(() => {
       if (isAuthenticated) {
         router.replace("/(tabs)/home");
@@ -22,10 +24,17 @@ export default function IndexGateway() {
     }, 100);
 
     return () => clearTimeout(timer);
-  }, [isAuthenticated]);
+  }, [isAuthenticated, isInitialized]);
 
   return (
-    <View style={{ flex: 1, backgroundColor: theme.bg, alignItems: "center", justifyContent: "center" }}>
+    <View
+      style={{
+        flex: 1,
+        backgroundColor: theme.bg,
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
       <ActivityIndicator size="large" color={theme.text} />
     </View>
   );

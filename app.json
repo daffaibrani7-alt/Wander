@@ -8,6 +8,8 @@
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
+      "bundleIdentifier": "com.wander.app",
+      "usesAppleSignIn": true,
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "Wander needs your location to show you and your friends on the map.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "Wander needs your location to share with friends in real-time."
@@ -42,7 +44,9 @@
           "locationWhenInUsePermission": "Wander needs your location to show you on the map.",
           "locationAlwaysAndWhenInUsePermission": "Wander needs your location to share with friends."
         }
-      ]
+      ],
+      "@react-native-google-signin/google-signin",
+      "expo-apple-authentication"
     ]
   }
 }
