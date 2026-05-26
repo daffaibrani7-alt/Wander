@@ -4,7 +4,11 @@
  */
 import React, { useRef, useEffect, forwardRef, useImperativeHandle } from "react";
 import { View, StyleSheet, Animated, Easing } from "react-native";
+import Reanimated, { useSharedValue, withTiming, useAnimatedProps } from "react-native-reanimated";
+import MapView, { Marker as RNMarker } from "react-native-maps";
 import { COLORS } from "../theme/colors";
+import { MapMarker } from "./MapMarker";
+import { FriendLocation } from "../services/mockService";
 
 export interface MapboxViewRef {
   flyTo: (coords: { latitude: number; longitude: number }, zoom?: number) => void;
@@ -14,6 +18,17 @@ export interface MapboxViewProps {
   latitude: number;
   longitude: number;
   isDark: boolean;
+  friends?: FriendLocation[];
+  userProfile?: {
+    displayName: string;
+    photoURL: string | null;
+    avatarEmoji: string;
+  } | null;
+  userBatteryLevel?: number;
+  userIsCharging?: boolean;
+  userGhostMode?: "precise" | "blurry" | "frozen";
+  followUser?: boolean;
+  onMapPan?: () => void;
   children?: React.ReactNode;
   style?: object;
 }
@@ -23,80 +38,379 @@ let MapboxSDK: any = null;
 let NativeMapView: any = null;
 let Camera: any = null;
 let UserLocation: any = null;
+let MarkerView: any = null;
+let AnimatedMarkerView: any = null;
 
 try {
   const Mapbox = require("@rnmapbox/maps");
-  MapboxSDK = Mapbox.default;
-  NativeMapView = Mapbox.MapView;
-  Camera = Mapbox.Camera;
-  UserLocation = Mapbox.UserLocation;
+  const tempMapboxSDK = Mapbox.default;
+  const tempNativeMapView = Mapbox.MapView;
+  const tempCamera = Mapbox.Camera;
+  const tempUserLocation = Mapbox.UserLocation;
+  const tempMarkerView = Mapbox.MarkerView;
+  const tempAnimatedMarkerView = Reanimated.createAnimatedComponent(tempMarkerView);
 
-  MapboxSDK?.setAccessToken(
+  tempMapboxSDK?.setAccessToken(
     "pk.eyJ1IjoiZGFmZmFpYnJhbmk3IiwiYSI6ImNtYjVvZ3FxaTBoaHkyanF4eDZ5M2xia3QifQ.PLACEHOLDER_PUBLIC_TOKEN"
   );
-} catch {
+
+  // Assign only if all above succeeded without throwing
+  MapboxSDK = tempMapboxSDK;
+  NativeMapView = tempNativeMapView;
+  Camera = tempCamera;
+  UserLocation = tempUserLocation;
+  MarkerView = tempMarkerView;
+  AnimatedMarkerView = tempAnimatedMarkerView;
+} catch (e) {
   // Expo Go – use radar fallback
+  MapboxSDK = null;
+  NativeMapView = null;
+  Camera = null;
+  UserLocation = null;
+  MarkerView = null;
+  AnimatedMarkerView = null;
 }
 
 const isMapboxAvailable = !!NativeMapView;
 
-// ─── Radar Fallback ────────────────────────────────────────────────────────────
-function RadarFallback({ isDark }: { isDark: boolean }) {
-  const rings = [
-    useRef(new Animated.Value(0)).current,
-    useRef(new Animated.Value(0)).current,
-    useRef(new Animated.Value(0)).current,
-  ];
+function AnimatedRadarFriend({
+  friend,
+  centerLatitude,
+  centerLongitude,
+}: {
+  friend: FriendLocation;
+  centerLatitude: number;
+  centerLongitude: number;
+}) {
+  const pan = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
+  const isInitialRender = useRef(true);
 
   useEffect(() => {
-    rings.forEach((ring, i) => {
-      Animated.loop(
-        Animated.sequence([
-          Animated.delay(i * 900),
-          Animated.timing(ring, { toValue: 1, duration: 2800, easing: Easing.out(Easing.quad), useNativeDriver: true }),
-          Animated.timing(ring, { toValue: 0, duration: 0, useNativeDriver: true }),
-        ])
-      ).start();
-    });
-  }, []);
+    const latDiff = friend.latitude - centerLatitude;
+    const lngDiff = friend.longitude - centerLongitude;
 
-  const ringColor = isDark ? COLORS.cyan : "#0070FF";
+    const yMeters = latDiff * 111000;
+    const xMeters = lngDiff * 111000 * Math.cos((centerLatitude * Math.PI) / 180);
+
+    const scale = 110 / 1000;
+    const px = xMeters * scale;
+    const py = -yMeters * scale;
+
+    const distance = Math.sqrt(px * px + py * py);
+    let finalX = px;
+    let finalY = py;
+    if (distance > 135) {
+      finalX = (px / distance) * 135;
+      finalY = (py / distance) * 135;
+    }
+
+    if (isInitialRender.current) {
+      pan.setValue({ x: finalX, y: finalY });
+      isInitialRender.current = false;
+    } else {
+      Animated.timing(pan, {
+        toValue: { x: finalX, y: finalY },
+        duration: 800,
+        useNativeDriver: true,
+        easing: Easing.out(Easing.quad),
+      }).start();
+    }
+  }, [friend.latitude, friend.longitude, centerLatitude, centerLongitude]);
 
   return (
-    <View style={[styles.fallback, { backgroundColor: isDark ? "#080810" : "#E8EAF6" }]}>
-      {rings.map((ring, i) => (
-        <Animated.View
-          key={i}
-          style={[
-            styles.ring,
-            {
-              borderColor: ringColor,
-              transform: [{ scale: ring.interpolate({ inputRange: [0, 1], outputRange: [0.1, 3.5] }) }],
-              opacity: ring.interpolate({ inputRange: [0, 0.4, 1], outputRange: [0.8, 0.3, 0] }),
-            },
-          ]}
-        />
-      ))}
-      <View style={[styles.centerDot, { backgroundColor: ringColor, shadowColor: ringColor }]} />
-      <View style={styles.centerInner} />
-    </View>
+    <Animated.View
+      style={[
+        styles.fallbackFriendMarker,
+        {
+          transform: pan.getTranslateTransform(),
+        },
+      ]}
+    >
+      <MapMarker
+        displayName={friend.displayName}
+        avatarUrl={friend.avatarUrl}
+        avatarEmoji={friend.avatarEmoji}
+        batteryLevel={friend.batteryLevel}
+        isCharging={friend.isCharging}
+        ghostMode={friend.ghostMode}
+        isOnline={Date.now() - new Date(friend.updatedAt).getTime() < 120000}
+      />
+    </Animated.View>
+  );
+}
+
+// Beautiful custom HSL dark styling for Google Maps on Fallback MapView
+const DARK_MAP_STYLE = [
+  {
+    "elementType": "geometry",
+    "stylers": [{ "color": "#0d0e1b" }]
+  },
+  {
+    "elementType": "labels.text.fill",
+    "stylers": [{ "color": "#00f0ff" }, { "opacity": 0.6 }]
+  },
+  {
+    "elementType": "labels.text.stroke",
+    "stylers": [{ "color": "#0d0e1b" }]
+  },
+  {
+    "featureType": "administrative",
+    "elementType": "geometry",
+    "stylers": [{ "color": "#1d2136" }]
+  },
+  {
+    "featureType": "landscape",
+    "elementType": "geometry",
+    "stylers": [{ "color": "#090a14" }]
+  },
+  {
+    "featureType": "poi",
+    "elementType": "geometry",
+    "stylers": [{ "color": "#121428" }]
+  },
+  {
+    "featureType": "road",
+    "elementType": "geometry",
+    "stylers": [{ "color": "#161b36" }]
+  },
+  {
+    "featureType": "road",
+    "elementType": "geometry.stroke",
+    "stylers": [{ "color": "#0d0e1b" }]
+  },
+  {
+    "featureType": "transit",
+    "elementType": "geometry",
+    "stylers": [{ "color": "#1b213c" }]
+  },
+  {
+    "featureType": "water",
+    "elementType": "geometry",
+    "stylers": [{ "color": "#04050b" }]
+  }
+];
+
+const LIGHT_MAP_STYLE = [
+  {
+    "elementType": "geometry",
+    "stylers": [{ "color": "#f5f6fa" }]
+  },
+  {
+    "featureType": "water",
+    "elementType": "geometry",
+    "stylers": [{ "color": "#c8d6e5" }]
+  },
+  {
+    "featureType": "road",
+    "elementType": "geometry",
+    "stylers": [{ "color": "#ffffff" }]
+  }
+];
+
+function FallbackMapView({
+  isDark,
+  friends,
+  latitude,
+  longitude,
+  userProfile,
+  userBatteryLevel = 100,
+  userIsCharging = false,
+  userGhostMode = "precise",
+  mapRef,
+}: {
+  isDark: boolean;
+  friends?: FriendLocation[];
+  latitude: number;
+  longitude: number;
+  userProfile?: {
+    displayName: string;
+    photoURL: string | null;
+    avatarEmoji: string;
+  } | null;
+  userBatteryLevel?: number;
+  userIsCharging?: boolean;
+  userGhostMode?: "precise" | "blurry" | "frozen";
+  mapRef: React.RefObject<MapView | null>;
+}) {
+  const isInitial = useRef(true);
+
+  // Smooth follow user in fallback map too!
+  useEffect(() => {
+    if (isInitial.current) {
+      isInitial.current = false;
+      return;
+    }
+    mapRef.current?.animateToRegion(
+      {
+        latitude,
+        longitude,
+        latitudeDelta: 0.015,
+        longitudeDelta: 0.015,
+      },
+      800
+    );
+  }, [latitude, longitude]);
+
+  return (
+    <MapView
+      ref={mapRef}
+      style={StyleSheet.absoluteFill}
+      initialRegion={{
+        latitude,
+        longitude,
+        latitudeDelta: 0.015,
+        longitudeDelta: 0.015,
+      }}
+      customMapStyle={isDark ? DARK_MAP_STYLE : LIGHT_MAP_STYLE}
+      showsUserLocation={false}
+      showsMyLocationButton={false}
+      showsCompass={false}
+      pitchEnabled={true}
+      rotateEnabled={true}
+      zoomEnabled={true}
+      scrollEnabled={true}
+    >
+      {/* Render Me marker */}
+      {latitude && longitude && (
+        <RNMarker
+          coordinate={{ latitude, longitude }}
+          anchor={{ x: 0.5, y: 1.0 }}
+          tracksViewChanges={false}
+        >
+          <MapMarker
+            displayName={userProfile?.displayName || "Saya"}
+            avatarUrl={userProfile?.photoURL || ""}
+            avatarEmoji={userProfile?.avatarEmoji || "🦊"}
+            batteryLevel={userBatteryLevel}
+            isCharging={userIsCharging}
+            ghostMode={userGhostMode}
+            isMe={true}
+          />
+        </RNMarker>
+      )}
+
+      {/* Render friends */}
+      {friends &&
+        friends.map((friend) => (
+          <RNMarker
+            key={friend.uid}
+            coordinate={{ latitude: friend.latitude, longitude: friend.longitude }}
+            anchor={{ x: 0.5, y: 1.0 }}
+            tracksViewChanges={false}
+          >
+            <MapMarker
+              displayName={friend.displayName}
+              avatarUrl={friend.avatarUrl}
+              avatarEmoji={friend.avatarEmoji}
+              batteryLevel={friend.batteryLevel}
+              isCharging={friend.isCharging}
+              ghostMode={friend.ghostMode}
+              isOnline={Date.now() - new Date(friend.updatedAt).getTime() < 120000}
+            />
+          </RNMarker>
+        ))}
+    </MapView>
+  );
+}
+
+function AnimatedFriendMarker({ friend }: { friend: FriendLocation }) {
+  const lon = useSharedValue(friend.longitude);
+  const lat = useSharedValue(friend.latitude);
+  const isInitialRender = useRef(true);
+
+  useEffect(() => {
+    if (isInitialRender.current) {
+      isInitialRender.current = false;
+    } else {
+      lon.value = withTiming(friend.longitude, { duration: 800 });
+      lat.value = withTiming(friend.latitude, { duration: 800 });
+    }
+  }, [friend.longitude, friend.latitude]);
+
+  const animatedProps = useAnimatedProps(() => {
+    return {
+      coordinate: [lon.value, lat.value],
+    };
+  });
+
+  if (!AnimatedMarkerView) return null;
+
+  return (
+    <AnimatedMarkerView
+      id={`marker-${friend.uid}`}
+      animatedProps={animatedProps}
+      anchor={{ x: 0.5, y: 1.0 }}
+    >
+      <MapMarker
+        displayName={friend.displayName}
+        avatarUrl={friend.avatarUrl}
+        avatarEmoji={friend.avatarEmoji}
+        batteryLevel={friend.batteryLevel}
+        isCharging={friend.isCharging}
+        ghostMode={friend.ghostMode}
+        isOnline={Date.now() - new Date(friend.updatedAt).getTime() < 120000}
+      />
+    </AnimatedMarkerView>
   );
 }
 
 // ─── Mapbox Native View ────────────────────────────────────────────────────────
 const MapboxViewComponent = forwardRef<MapboxViewRef, MapboxViewProps>(
-  ({ latitude, longitude, isDark, children, style }, ref) => {
+  (
+    {
+      latitude,
+      longitude,
+      isDark,
+      friends,
+      userProfile,
+      userBatteryLevel = 100,
+      userIsCharging = false,
+      userGhostMode = "precise",
+      followUser = true,
+      onMapPan,
+      children,
+      style,
+    },
+    ref
+  ) => {
     const cameraRef = useRef<any>(null);
+    const fallbackMapRef = useRef<MapView>(null);
 
     useImperativeHandle(ref, () => ({
       flyTo: (coords, zoom = 15) => {
-        cameraRef.current?.flyTo([coords.longitude, coords.latitude], 800);
-        cameraRef.current?.zoomTo(zoom, 800);
+        if (isMapboxAvailable) {
+          cameraRef.current?.flyTo([coords.longitude, coords.latitude], 800);
+          cameraRef.current?.zoomTo(zoom, 800);
+        } else {
+          fallbackMapRef.current?.animateToRegion(
+            {
+              latitude: coords.latitude,
+              longitude: coords.longitude,
+              latitudeDelta: 0.008,
+              longitudeDelta: 0.008,
+            },
+            800
+          );
+        }
       },
     }));
 
     if (!isMapboxAvailable) {
-      return <RadarFallback isDark={isDark} />;
+      return (
+        <View style={[styles.container, style]}>
+          <FallbackMapView
+            isDark={isDark}
+            friends={friends}
+            latitude={latitude}
+            longitude={longitude}
+            userProfile={userProfile}
+            userBatteryLevel={userBatteryLevel}
+            userIsCharging={userIsCharging}
+            userGhostMode={userGhostMode}
+            mapRef={fallbackMapRef}
+          />
+        </View>
+      );
     }
 
     const mapStyle = isDark
@@ -114,9 +428,17 @@ const MapboxViewComponent = forwardRef<MapboxViewRef, MapboxViewProps>(
           scaleBarEnabled={false}
           pitchEnabled
           rotateEnabled
+          onCameraChanged={(state: any) => {
+            // Jika perubahan kamera dipicu oleh gestur geser tangan pengguna,
+            // matikan mode followUser otomatis agar tidak mental/snap kembali.
+            if (state.gestures?.isGestureActive && onMapPan) {
+              onMapPan();
+            }
+          }}
         >
           <Camera
             ref={cameraRef}
+            centerCoordinate={followUser ? [longitude, latitude] : undefined}
             defaultSettings={{
               centerCoordinate: [longitude, latitude],
               zoomLevel: 14,
@@ -125,7 +447,33 @@ const MapboxViewComponent = forwardRef<MapboxViewRef, MapboxViewProps>(
             animationMode="flyTo"
             animationDuration={800}
           />
-          <UserLocation visible animated showsUserHeadingIndicator />
+          <UserLocation visible={false} />
+
+          {/* Render marker kustom pengguna utama (Me) dengan Cyan neon glow */}
+          {latitude && longitude && (
+            <MarkerView
+              id="me-marker"
+              coordinate={[longitude, latitude]}
+              anchor={{ x: 0.5, y: 1.0 }}
+            >
+              <MapMarker
+                displayName={userProfile?.displayName || "Saya"}
+                avatarUrl={userProfile?.photoURL || ""}
+                avatarEmoji={userProfile?.avatarEmoji || "🦊"}
+                batteryLevel={userBatteryLevel}
+                isCharging={userIsCharging}
+                ghostMode={userGhostMode}
+                isMe={true}
+              />
+            </MarkerView>
+          )}
+
+          {/* Render markers of friends in real Mapbox native */}
+          {friends &&
+            friends.map((friend) => (
+              <AnimatedFriendMarker key={friend.uid} friend={friend} />
+            ))}
+
           {children}
         </NativeMapView>
       </View>
@@ -139,6 +487,9 @@ export const MapboxView = MapboxViewComponent;
 const styles = StyleSheet.create({
   container: { flex: 1 },
   map: { flex: 1 },
+  fallbackContainer: {
+    ...StyleSheet.absoluteFill,
+  },
   fallback: { flex: 1, alignItems: "center", justifyContent: "center", overflow: "hidden" },
   ring: {
     position: "absolute",
@@ -164,5 +515,17 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     backgroundColor: "#fff",
     zIndex: 11,
+  },
+  centerMarkerContainer: {
+    position: "absolute",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 30,
+  },
+  fallbackFriendMarker: {
+    position: "absolute",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 20,
   },
 });

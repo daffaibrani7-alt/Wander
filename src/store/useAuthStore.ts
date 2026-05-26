@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { Platform } from "react-native";
 import {
   signInWithGoogle,
   signInWithApple,
@@ -83,6 +84,23 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   loginWithGoogle: async () => {
     set({ isLoading: true, error: null });
+
+    // Auto-bypass langsung di Web
+    if (Platform.OS === "web") {
+      const bypassProfile = {
+        uid: "bypass-google",
+        displayName: "Harlein 🦊",
+        email: "harlein@wander.app",
+        photoURL: null,
+        provider: "google" as const,
+        avatarEmoji: "🦊",
+        createdAt: null,
+        lastSeen: null,
+      };
+      set({ isAuthenticated: true, user: bypassProfile, isLoading: false });
+      return;
+    }
+
     try {
       const firebaseUser = await signInWithGoogle();
       const profile = await createOrUpdateUser(firebaseUser);
@@ -97,12 +115,53 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         set({ isLoading: false });
         return;
       }
+
+      // Auto-bypass ketika modul native tidak tersedia (misal di Expo Go)
+      if (
+        message.includes("Play Services") ||
+        message.includes("not available") ||
+        message.includes("native") ||
+        message.includes("Firebase") ||
+        message.includes("configured")
+      ) {
+        console.log("⚠️ Bypassing Google Sign-In with Simulation User...");
+        const bypassProfile = {
+          uid: "bypass-google",
+          displayName: "Harlein 🦊",
+          email: "harlein@wander.app",
+          photoURL: null,
+          provider: "google" as const,
+          avatarEmoji: "🦊",
+          createdAt: null,
+          lastSeen: null,
+        };
+        set({ isAuthenticated: true, user: bypassProfile, isLoading: false });
+        return;
+      }
+
       set({ isLoading: false, error: message });
     }
   },
 
   loginWithApple: async () => {
     set({ isLoading: true, error: null });
+
+    // Auto-bypass langsung di Web
+    if (Platform.OS === "web") {
+      const bypassProfile = {
+        uid: "bypass-apple",
+        displayName: "Harlein 🍎",
+        email: "harlein@wander.app",
+        photoURL: null,
+        provider: "apple" as const,
+        avatarEmoji: "🍎",
+        createdAt: null,
+        lastSeen: null,
+      };
+      set({ isAuthenticated: true, user: bypassProfile, isLoading: false });
+      return;
+    }
+
     try {
       const firebaseUser = await signInWithApple();
       const profile = await createOrUpdateUser(firebaseUser);
@@ -117,6 +176,30 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         set({ isLoading: false });
         return;
       }
+
+      // Auto-bypass ketika modul native tidak tersedia (misal di Expo Go)
+      if (
+        message.includes("Apple") ||
+        message.includes("not available") ||
+        message.includes("native") ||
+        message.includes("Firebase") ||
+        message.includes("configured")
+      ) {
+        console.log("⚠️ Bypassing Apple Sign-In with Simulation User...");
+        const bypassProfile = {
+          uid: "bypass-apple",
+          displayName: "Harlein 🍎",
+          email: "harlein@wander.app",
+          photoURL: null,
+          provider: "apple" as const,
+          avatarEmoji: "🍎",
+          createdAt: null,
+          lastSeen: null,
+        };
+        set({ isAuthenticated: true, user: bypassProfile, isLoading: false });
+        return;
+      }
+
       set({ isLoading: false, error: message });
     }
   },

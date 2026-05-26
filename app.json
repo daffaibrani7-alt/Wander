@@ -42,7 +42,9 @@
         "expo-location",
         {
           "locationWhenInUsePermission": "Wander needs your location to show you on the map.",
-          "locationAlwaysAndWhenInUsePermission": "Wander needs your location to share with friends."
+          "locationAlwaysAndWhenInUsePermission": "Wander needs your location to share with friends.",
+          "isIosBackgroundLocationEnabled": true,
+          "isAndroidBackgroundLocationEnabled": true
         }
       ],
       "@react-native-google-signin/google-signin",

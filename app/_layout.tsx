@@ -2,6 +2,7 @@ import React, { useEffect } from "react";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { View, StyleSheet } from "react-native";
+import "../src/services/locationService";
 import { useThemeStore } from "../src/store/useThemeStore";
 import { useAuthStore } from "../src/store/useAuthStore";
 import { COLORS } from "../src/theme/colors";

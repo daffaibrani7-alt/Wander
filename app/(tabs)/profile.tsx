@@ -1,10 +1,11 @@
-import React, { useState } from "react";
-import { View, Text, StyleSheet, Pressable, ScrollView, Switch, SafeAreaView, Platform } from "react-native";
+import React, { useState, useEffect } from "react";
+import { View, Text, StyleSheet, Pressable, ScrollView, Switch, SafeAreaView, Platform, TextInput } from "react-native";
 import { User, Battery, Shield, ArrowLeft, RefreshCw, Zap, Bell, PlusCircle, Moon, LogOut } from "lucide-react-native";
 import { GlassCard } from "../../src/components/GlassCard";
 import { COLORS } from "../../src/theme/colors";
 import { useThemeStore } from "../../src/store/useThemeStore";
 import { useAuthStore } from "../../src/store/useAuthStore";
+import { useFriendStore } from "../../src/store/useFriendStore";
 import { useRouter } from "expo-router";
 
 export default function ProfileScreen() {
@@ -16,6 +17,32 @@ export default function ProfileScreen() {
   
   const [selectedEmoji, setSelectedEmoji] = useState("😎");
   const emojis = ["😎", "🛹", "🎮", "🦄", "🍿", "🍕", "😴", "⚡️"];
+  const [searchQuery, setSearchQuery] = useState("");
+
+  const {
+    friends,
+    incomingRequests,
+    outgoingRequests,
+    searchResults,
+    searchUsersAction,
+    sendRequestAction,
+    acceptRequestAction,
+    rejectRequestAction,
+    initializeFriendListener,
+  } = useFriendStore();
+
+  useEffect(() => {
+    if (user?.uid) {
+      const unsubscribe = initializeFriendListener(user.uid);
+      return () => unsubscribe();
+    }
+  }, [user?.uid]);
+
+  const handleSearch = () => {
+    if (user?.uid && searchQuery.trim()) {
+      searchUsersAction(searchQuery, user.uid);
+    }
+  };
 
   const handleLogout = async () => {
     await logout();
@@ -64,6 +91,124 @@ export default function ProfileScreen() {
               </Pressable>
             ))}
           </View>
+        </GlassCard>
+
+        {/* ─── KELOLA TEMAN (FRIEND SYSTEM) ─── */}
+        <Text style={[styles.sectionTitle, { color: theme.textMuted }]}>Sistem Pertemanan 👥</Text>
+        
+        {/* Card 1: Cari Pengguna */}
+        <GlassCard style={styles.friendCard}>
+          <Text style={[styles.cardTitle, { color: theme.text }]}>Cari Teman Baru</Text>
+          <View style={styles.searchRow}>
+            <TextInput
+              style={[styles.searchInput, { color: theme.text, borderColor: isDark ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.1)" }]}
+              placeholder="Masukkan nama pengguna..."
+              placeholderTextColor={theme.textMuted}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              onSubmitEditing={handleSearch}
+            />
+            <Pressable onPress={handleSearch} style={[styles.searchBtn, { backgroundColor: COLORS.cyan }]}>
+              <Text style={styles.searchBtnText}>Cari</Text>
+            </Pressable>
+          </View>
+
+          {/* Search Results */}
+          {searchResults.length > 0 && (
+            <View style={styles.resultsList}>
+              {searchResults.map((item) => {
+                const isAlreadyFriend = friends.some((f) => f.uid === item.uid);
+                const isIncoming = incomingRequests.some((r) => r.uid === item.uid);
+                const isOutgoing = outgoingRequests.some((r) => r.uid === item.uid);
+
+                return (
+                  <View key={item.uid} style={styles.resultItem}>
+                    <Text style={styles.resultEmoji}>{item.avatarEmoji || "🦊"}</Text>
+                    <View style={{ flex: 1, marginLeft: 12 }}>
+                      <Text style={[styles.resultName, { color: theme.text }]}>{item.displayName}</Text>
+                    </View>
+                    
+                    {isAlreadyFriend ? (
+                      <Text style={[styles.statusText, { color: COLORS.green }]}>Teman</Text>
+                    ) : isOutgoing ? (
+                      <Text style={[styles.statusText, { color: theme.textMuted }]}>Terkirim</Text>
+                    ) : isIncoming ? (
+                      <Pressable
+                        onPress={() => user?.uid && acceptRequestAction(user.uid, item.uid)}
+                        style={[styles.actionBadge, { backgroundColor: COLORS.green }]}
+                      >
+                        <Text style={styles.badgeText}>Terima</Text>
+                      </Pressable>
+                    ) : (
+                      <Pressable
+                        onPress={() => user?.uid && sendRequestAction(user.uid, item.uid)}
+                        style={[styles.actionBadge, { backgroundColor: COLORS.cyan }]}
+                      >
+                        <Text style={styles.badgeText}>+ Tambah</Text>
+                      </Pressable>
+                    )}
+                  </View>
+                );
+              })}
+            </View>
+          )}
+        </GlassCard>
+
+        {/* Card 2: Permintaan Pertemanan Masuk */}
+        {incomingRequests.length > 0 && (
+          <GlassCard style={styles.friendCard}>
+            <Text style={[styles.cardTitle, { color: theme.text }]}>Permintaan Pertemanan ({incomingRequests.length})</Text>
+            <View style={styles.incomingList}>
+              {incomingRequests.map((item) => (
+                <View key={item.uid} style={styles.requestItem}>
+                  <Text style={styles.resultEmoji}>{item.avatarEmoji || "🦊"}</Text>
+                  <View style={{ flex: 1, marginLeft: 12 }}>
+                    <Text style={[styles.resultName, { color: theme.text }]}>{item.displayName}</Text>
+                  </View>
+                  <View style={styles.searchRow}>
+                    <Pressable
+                      onPress={() => user?.uid && acceptRequestAction(user.uid, item.uid)}
+                      style={[styles.iconActionBtn, { backgroundColor: "rgba(0, 240, 255, 0.15)" }]}
+                    >
+                      <Text style={{ color: COLORS.cyan, fontWeight: "900", fontSize: 13 }}>Terima</Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => user?.uid && rejectRequestAction(user.uid, item.uid)}
+                      style={[styles.iconActionBtn, { backgroundColor: "rgba(255, 91, 153, 0.15)" }]}
+                    >
+                      <Text style={{ color: COLORS.pink, fontWeight: "900", fontSize: 13 }}>Tolak</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              ))}
+            </View>
+          </GlassCard>
+        )}
+
+        {/* Card 3: Daftar Teman Aktif */}
+        <GlassCard style={styles.friendCard}>
+          <Text style={[styles.cardTitle, { color: theme.text }]}>Teman Saya ({friends.length})</Text>
+          {friends.length === 0 ? (
+            <Text style={[styles.noFriendsText, { color: theme.textMuted }]}>Belum ada teman terhubung. Cari teman di atas!</Text>
+          ) : (
+            <View style={styles.friendsList}>
+              {friends.map((item) => (
+                <View key={item.uid} style={styles.friendListItem}>
+                  <Text style={styles.resultEmoji}>{item.avatarEmoji || "🦊"}</Text>
+                  <View style={{ flex: 1, marginLeft: 12 }}>
+                    <Text style={[styles.resultName, { color: theme.text }]}>{item.displayName}</Text>
+                    <Text style={[styles.resultEmail, { color: theme.textMuted }]} numberOfLines={1}>{item.email}</Text>
+                  </View>
+                  <Pressable
+                    onPress={() => user?.uid && rejectRequestAction(user.uid, item.uid)}
+                    style={styles.unfriendBtn}
+                  >
+                    <Text style={{ color: COLORS.pink, fontWeight: "800", fontSize: 12 }}>Hapus</Text>
+                  </Pressable>
+                </View>
+              ))}
+            </View>
+          )}
         </GlassCard>
 
         {/* Dynamic Display Settings */}
@@ -308,5 +453,116 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     marginLeft: 8,
     fontFamily: "System",
+  },
+  friendCard: {
+    padding: 18,
+    borderRadius: 20,
+    marginBottom: 20,
+    shadowOpacity: 0.03,
+  },
+  cardTitle: {
+    fontSize: 15,
+    fontWeight: "800",
+    marginBottom: 12,
+    fontFamily: "System",
+  },
+  searchRow: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  searchInput: {
+    flex: 1,
+    height: 40,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    fontSize: 14,
+    fontFamily: "System",
+  },
+  searchBtn: {
+    width: 60,
+    height: 40,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  searchBtnText: {
+    color: "#000",
+    fontWeight: "800",
+    fontSize: 13,
+    fontFamily: "System",
+  },
+  resultsList: {
+    marginTop: 12,
+    gap: 8,
+  },
+  resultItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 8,
+    borderBottomWidth: 0.5,
+    borderBottomColor: "rgba(255,255,255,0.08)",
+  },
+  resultEmoji: {
+    fontSize: 22,
+  },
+  resultName: {
+    fontSize: 14,
+    fontWeight: "700",
+    fontFamily: "System",
+  },
+  resultEmail: {
+    fontSize: 11,
+    marginTop: 2,
+    fontFamily: "System",
+  },
+  statusText: {
+    fontSize: 13,
+    fontWeight: "700",
+    fontFamily: "System",
+  },
+  actionBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  badgeText: {
+    color: "#000",
+    fontWeight: "800",
+    fontSize: 11,
+    fontFamily: "System",
+  },
+  incomingList: {
+    gap: 8,
+  },
+  requestItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 8,
+  },
+  iconActionBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  noFriendsText: {
+    fontSize: 12,
+    textAlign: "center",
+    paddingVertical: 14,
+    fontFamily: "System",
+  },
+  friendsList: {
+    gap: 8,
+  },
+  friendListItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 8,
+    borderBottomWidth: 0.5,
+    borderBottomColor: "rgba(255,255,255,0.08)",
+  },
+  unfriendBtn: {
+    paddingHorizontal: 8,
+    paddingVertical: 6,
   },
 });

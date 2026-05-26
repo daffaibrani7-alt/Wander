@@ -29,10 +29,13 @@ import { COLORS } from "../../src/theme/colors";
 import { GlassCard } from "../../src/components/GlassCard";
 import { MapMarker } from "../../src/components/MapMarker";
 import { MapboxView, MapboxViewRef } from "../../src/components/MapboxView";
-import { FriendLocation, MockService } from "../../src/services/mockService";
-import { useLocation, GhostModeType } from "../../src/hooks/useLocation";
+import { FriendLocation } from "../../src/services/mockService";
+import { useLocationStore } from "../../src/store/useLocationStore";
 import { useThemeStore } from "../../src/store/useThemeStore";
 import { useAuthStore } from "../../src/store/useAuthStore";
+import { useFriendStore } from "../../src/store/useFriendStore";
+
+type GhostModeType = "precise" | "blurry" | "frozen";
 
 const GHOST_MODES: { mode: GhostModeType; label: string; color: string; icon: string }[] = [
   { mode: "precise", label: "Akurat", color: COLORS.cyan, icon: "📡" },
@@ -47,15 +50,55 @@ export default function HomeMapScreen() {
   const { height } = useWindowDimensions();
 
   const mapRef = useRef<MapboxViewRef>(null);
-  const [selectedFriend, setSelectedFriend] = useState<FriendLocation | null>(null);
-  const [friends, setFriends] = useState<FriendLocation[]>([]);
+  const [selectedFriendUid, setSelectedFriendUid] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearchFocused, setIsSearchFocused] = useState(false);
   const [alertText, setAlertText] = useState<string | null>(null);
   const [showGhostPicker, setShowGhostPicker] = useState(false);
+  const [followUser, setFollowUser] = useState(true);
 
-  // Location
-  const { location, ghostMode, setGhostMode } = useLocation("user-me", 85, false);
+  // Live Location Store
+  const {
+    location,
+    friends: allFriendsLocations,
+    ghostMode,
+    batteryLevel,
+    isCharging,
+    startTracking,
+    stopTracking,
+    setGhostMode,
+    listenToFriends,
+  } = useLocationStore();
+
+  const { friends: activeFriends, initializeFriendListener } = useFriendStore();
+
+  // Dengarkan relasi pertemanan secara real-time
+  useEffect(() => {
+    if (userProfile?.uid) {
+      const unsubscribe = initializeFriendListener(userProfile.uid);
+      return () => unsubscribe();
+    }
+  }, [userProfile?.uid]);
+
+  // Saring koordinat teman: tampilkan hanya teman yang terdaftar sebagai 'accepted', 
+  // atau teman mock simulasi (berawalan 'mock-') agar peta tidak kosong
+  const friends = allFriendsLocations.filter(
+    (loc) => activeFriends.some((f) => f.uid === loc.uid) || loc.uid.startsWith("mock-")
+  );
+
+  const selectedFriend = friends.find((f) => f.uid === selectedFriendUid) || null;
+
+  // Mulai pelacakan lokasi foreground/background saat mount
+  useEffect(() => {
+    startTracking();
+    return () => stopTracking();
+  }, []);
+
+  // Dengarkan perubahan lokasi teman secara real-time (Firestore + simulator)
+  useEffect(() => {
+    const unsubscribe = listenToFriends();
+    return () => unsubscribe();
+  }, []);
 
   // Animations
   const alertAnim = useRef(new Animated.Value(-150)).current;
@@ -64,15 +107,6 @@ export default function HomeMapScreen() {
   const ghostPickerAnim = useRef(new Animated.Value(0)).current;
   const profilePulse = useRef(new Animated.Value(1)).current;
   const recenterAnim = useRef(new Animated.Value(0)).current;
-
-  // Friends ticking
-  useEffect(() => {
-    setFriends(MockService.getFriends(location?.latitude, location?.longitude));
-    const interval = setInterval(() => {
-      setFriends(MockService.getFriends(location?.latitude, location?.longitude));
-    }, 4000);
-    return () => clearInterval(interval);
-  }, [location]);
 
   // Profile pulse animation loop
   useEffect(() => {
@@ -98,7 +132,7 @@ export default function HomeMapScreen() {
 
   // ── Friend selection ──────────────────────────────────────────────────────
   const handleSelectFriend = (friend: FriendLocation) => {
-    setSelectedFriend(friend);
+    setSelectedFriendUid(friend.uid);
     if (friend.latitude && friend.longitude) {
       mapRef.current?.flyTo({ latitude: friend.latitude, longitude: friend.longitude }, 15);
     }
@@ -108,7 +142,7 @@ export default function HomeMapScreen() {
 
   const handleClosePanel = () => {
     Animated.timing(slideAnim, { toValue: height, duration: 240, useNativeDriver: true }).start(() =>
-      setSelectedFriend(null)
+      setSelectedFriendUid(null)
     );
   };
 
@@ -148,6 +182,7 @@ export default function HomeMapScreen() {
 
   // ── Recenter ──────────────────────────────────────────────────────────────
   const handleRecenter = () => {
+    setFollowUser(true);
     if (location) {
       mapRef.current?.flyTo({ latitude: location.latitude, longitude: location.longitude }, 15);
     }
@@ -171,7 +206,14 @@ export default function HomeMapScreen() {
         latitude={location?.latitude ?? -6.2088}
         longitude={location?.longitude ?? 106.8456}
         isDark={isDark}
-        style={StyleSheet.absoluteFillObject}
+        friends={friends}
+        userProfile={userProfile}
+        userBatteryLevel={batteryLevel}
+        userIsCharging={isCharging}
+        userGhostMode={ghostMode}
+        followUser={followUser}
+        onMapPan={() => setFollowUser(false)}
+        style={StyleSheet.absoluteFill}
       />
 
       {/* ── Top floating bar ── */}
@@ -227,7 +269,7 @@ export default function HomeMapScreen() {
           </GlassCard>
         </Animated.View>
 
-        {/* Recenter button */}
+        {/* Recenter button (Apple Maps Style) */}
         <Animated.View
           style={{
             transform: [
@@ -244,11 +286,22 @@ export default function HomeMapScreen() {
               styles.iconBtn,
               {
                 backgroundColor: isDark ? "rgba(18,18,22,0.9)" : "rgba(255,255,255,0.92)",
-                borderColor: isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.08)",
+                borderColor: followUser
+                  ? COLORS.cyan + "66"
+                  : isDark
+                  ? "rgba(255,255,255,0.1)"
+                  : "rgba(0,0,0,0.08)",
+                shadowColor: followUser ? COLORS.cyan : "#000",
+                shadowOpacity: followUser ? 0.35 : 0.12,
+                shadowRadius: followUser ? 10 : 8,
               },
             ]}
           >
-            <Crosshair size={18} color={COLORS.cyan} strokeWidth={2.5} />
+            {followUser ? (
+              <Navigation size={18} color={COLORS.cyan} fill={COLORS.cyan} strokeWidth={2.5} />
+            ) : (
+              <Navigation size={18} color={theme.text} strokeWidth={2} />
+            )}
           </Pressable>
         </Animated.View>
       </View>

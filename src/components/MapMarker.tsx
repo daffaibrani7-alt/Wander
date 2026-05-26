@@ -10,6 +10,7 @@ interface MapMarkerProps {
   isCharging: boolean;
   ghostMode: "precise" | "blurry" | "frozen";
   isMe?: boolean;
+  isOnline?: boolean;
 }
 
 export function MapMarker({
@@ -20,6 +21,7 @@ export function MapMarker({
   isCharging,
   ghostMode,
   isMe = false,
+  isOnline = true,
 }: MapMarkerProps) {
   
   // Decide glowing border color
@@ -51,6 +53,14 @@ export function MapMarker({
         <View style={[styles.emojiBadge, { backgroundColor: glowColor }]}>
           <Text style={styles.emojiText}>{avatarEmoji || "📍"}</Text>
         </View>
+
+        {/* Online Status Dot */}
+        <View
+          style={[
+            styles.onlineDot,
+            { backgroundColor: isOnline ? "#2BE080" : "#8E8E93" }
+          ]}
+        />
       </View>
 
       {/* Battery badge attached below marker */}
@@ -127,6 +137,21 @@ const styles = StyleSheet.create({
   },
   emojiText: {
     fontSize: 10,
+  },
+  onlineDot: {
+    position: "absolute",
+    bottom: -2,
+    left: -2,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: "#1C1C1E",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 1.0,
+    elevation: 2,
   },
   batteryBadgeContainer: {
     marginTop: 4,
