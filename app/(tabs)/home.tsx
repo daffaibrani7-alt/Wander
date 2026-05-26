@@ -35,6 +35,7 @@ import { useLocationStore } from "../../src/store/useLocationStore";
 import { useThemeStore } from "../../src/store/useThemeStore";
 import { useAuthStore } from "../../src/store/useAuthStore";
 import { useFriendStore } from "../../src/store/useFriendStore";
+import { useGeofenceStore } from "../../src/store/useGeofenceStore";
 
 type GhostModeType = "precise" | "blurry" | "frozen";
 
@@ -71,6 +72,8 @@ export default function HomeMapScreen() {
     listenToFriends,
   } = useLocationStore();
 
+  const { radiusConfig, initializeNotifications } = useGeofenceStore();
+
   const { friends: activeFriends, initializeFriendListener } = useFriendStore();
 
   // Dengarkan relasi pertemanan secara real-time
@@ -92,6 +95,7 @@ export default function HomeMapScreen() {
   // Mulai pelacakan lokasi foreground/background saat mount
   useEffect(() => {
     startTracking();
+    initializeNotifications();
     return () => stopTracking();
   }, []);
 
@@ -506,6 +510,38 @@ export default function HomeMapScreen() {
               </View>
             </View>
 
+            {/* Geofence Radius Selector */}
+            {selectedFriend.geofence && (
+              <View style={styles.radiusSelector}>
+                <Text style={[styles.radiusTitle, { color: theme.textMuted }]}>
+                  📏 RADIUS NOTIFIKASI GEOPENCING
+                </Text>
+                <View style={styles.radiusRow}>
+                  {[100, 250, 500].map((r) => {
+                    const isSelected = radiusConfig[selectedFriend.geofence!] === r;
+
+                    return (
+                      <Pressable
+                        key={r}
+                        onPress={() => {
+                          useGeofenceStore.getState().updateRegionRadius(selectedFriend.geofence!, r);
+                          triggerAlert(`Radius geofence ${selectedFriend.geofence === "home" ? "Rumah" : selectedFriend.geofence === "work" ? "Kantor" : "Sekolah"} disetel ke ${r}m! 📏`);
+                        }}
+                        style={[
+                          styles.radiusBtn,
+                          isSelected && { backgroundColor: COLORS.cyan + "25", borderColor: COLORS.cyan }
+                        ]}
+                      >
+                        <Text style={[styles.radiusBtnText, { color: isSelected ? COLORS.cyan : theme.text }]}>
+                          {r}m
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
+            )}
+
             {/* Actions */}
             <View style={styles.actionRow}>
               <Pressable
@@ -913,6 +949,36 @@ const styles = StyleSheet.create({
   },
   statusTextPill: {
     fontSize: 11,
+    fontWeight: "800",
+    fontFamily: "System",
+  },
+  radiusSelector: {
+    marginVertical: 4,
+    marginBottom: 14,
+  },
+  radiusTitle: {
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 0.5,
+    marginBottom: 8,
+    fontFamily: "System",
+  },
+  radiusRow: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  radiusBtn: {
+    flex: 1,
+    height: 34,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.12)",
+    backgroundColor: "rgba(255,255,255,0.03)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  radiusBtnText: {
+    fontSize: 12,
     fontWeight: "800",
     fontFamily: "System",
   },

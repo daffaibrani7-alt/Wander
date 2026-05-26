@@ -6,6 +6,8 @@ import { db, auth, isFirebaseConfigured } from "../config/firebase";
 import { getTrackingOptions, LOCATION_TASK_NAME } from "../services/locationService";
 import { MockService, FriendLocation } from "../services/mockService";
 import { useFriendStore } from "./useFriendStore";
+import { useGeofenceStore } from "./useGeofenceStore";
+import * as Haptics from "expo-haptics";
 
 interface LocationState {
   location: Location.LocationObjectCoords | null;
@@ -144,6 +146,9 @@ function getForegroundOptions(batteryLevel: number, isCharging: boolean, lowPowe
   };
 }
 
+// Transition tracker map to monitor friends entering/leaving geofences dynamically
+const prevFriendGeofenceStates = new Map<string, "home" | "work" | "school" | null>();
+
 export const useLocationStore = create<LocationState>((set, get) => {
   let fgSubscription: Location.LocationSubscription | null = null;
   let batLevelSub: any = null;
@@ -216,6 +221,7 @@ export const useLocationStore = create<LocationState>((set, get) => {
         });
         set({ location: initial.coords });
         await get().syncLocationToFirestore(initial.coords, true);
+        useGeofenceStore.getState().evaluateSelfGeofences(initial.coords.latitude, initial.coords.longitude);
 
         // Start Optimized Foreground Watcher
         const fgOptions = getForegroundOptions(batteryLevel, isCharging, lowPowerMode);
@@ -224,6 +230,7 @@ export const useLocationStore = create<LocationState>((set, get) => {
           async (newLocation) => {
             set({ location: newLocation.coords });
             await get().syncLocationToFirestore(newLocation.coords);
+            useGeofenceStore.getState().evaluateSelfGeofences(newLocation.coords.latitude, newLocation.coords.longitude);
           }
         );
 
@@ -314,6 +321,7 @@ export const useLocationStore = create<LocationState>((set, get) => {
           async (newLocation) => {
             set({ location: newLocation.coords });
             await get().syncLocationToFirestore(newLocation.coords);
+            useGeofenceStore.getState().evaluateSelfGeofences(newLocation.coords.latitude, newLocation.coords.longitude);
           }
         );
 
@@ -488,6 +496,43 @@ export const useLocationStore = create<LocationState>((set, get) => {
             // Merge with cached static profile fields from useFriendStore
             const friendProfile = useFriendStore.getState().friends.find((f) => f.uid === data.uid);
 
+            const currentGeofence = data.geofence || checkGeofence(data.latitude, data.longitude, data.uid) || null;
+            const previousGeofence = prevFriendGeofenceStates.get(data.uid);
+
+            if (previousGeofence !== undefined) {
+              if (currentGeofence !== previousGeofence) {
+                prevFriendGeofenceStates.set(data.uid, currentGeofence);
+
+                const displayName = friendProfile?.displayName || "Wanderer";
+                const geofenceStore = useGeofenceStore.getState();
+
+                if (currentGeofence) {
+                  const emoji = currentGeofence === "home" ? "🏡" : currentGeofence === "work" ? "💼" : "🏫";
+                  const place = currentGeofence === "home" ? "Rumah" : currentGeofence === "work" ? "Kantor" : "Sekolah";
+                  
+                  geofenceStore.triggerLocalNotification(
+                    "Wander Teman Sampai",
+                    `${displayName} telah sampai di ${place}! ${emoji}`
+                  ).catch(() => {});
+                  
+                  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+                } else if (previousGeofence) {
+                  const emoji = previousGeofence === "home" ? "🏡" : previousGeofence === "work" ? "💼" : "🏫";
+                  const place = previousGeofence === "home" ? "Rumah" : previousGeofence === "work" ? "Kantor" : "Sekolah";
+
+                  geofenceStore.triggerLocalNotification(
+                    "Wander Teman Pergi",
+                    `${displayName} telah meninggalkan ${place}! ${emoji}`
+                  ).catch(() => {});
+
+                  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
+                }
+              }
+            } else {
+              // Initial load - register state without spamming on launch
+              prevFriendGeofenceStates.set(data.uid, currentGeofence);
+            }
+
             realFriends.push({
               uid: data.uid,
               displayName: friendProfile?.displayName || "Wanderer",
@@ -499,7 +544,7 @@ export const useLocationStore = create<LocationState>((set, get) => {
               isCharging: !!data.isCharging,
               ghostMode: data.ghostMode || "precise",
               activity: data.activity || "online",
-              geofence: data.geofence || checkGeofence(data.latitude, data.longitude, data.uid) || null,
+              geofence: currentGeofence,
               distanceText:
                 distance < 1
                   ? `${Math.round(distance * 1000)} m`
