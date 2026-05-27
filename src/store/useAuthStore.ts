@@ -11,6 +11,7 @@ import {
   createOrUpdateUser,
   type UserProfile,
 } from "../services/userService";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 // ─── State Types ───────────────────────────────────────────────────
 interface AuthState {
@@ -27,6 +28,29 @@ interface AuthState {
   logout: () => Promise<void>;
   setLoading: (loading: boolean) => void;
   clearError: () => void;
+  updateLocalUser: (fields: Partial<UserProfile>) => void;
+}
+
+const SIMULATED_PROFILE_KEY_PREFIX = "wander_simulated_profile_";
+
+async function getSimulatedProfile(
+  uid: string,
+  defaultProfile: Omit<UserProfile, "createdAt" | "lastSeen">
+): Promise<UserProfile> {
+  try {
+    const val = await AsyncStorage.getItem(SIMULATED_PROFILE_KEY_PREFIX + uid);
+    if (val) {
+      const parsed = JSON.parse(val);
+      return { ...defaultProfile, ...parsed };
+    }
+  } catch (err) {
+    console.error("Error loading simulated profile:", err);
+  }
+  return {
+    ...defaultProfile,
+    createdAt: null,
+    lastSeen: null,
+  };
 }
 
 // ─── Store ─────────────────────────────────────────────────────────
@@ -87,16 +111,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
     // Auto-bypass langsung di Web
     if (Platform.OS === "web") {
-      const bypassProfile = {
+      const bypassProfile = await getSimulatedProfile("bypass-google", {
         uid: "bypass-google",
         displayName: "Harlein 🦊",
         email: "harlein@wander.app",
         photoURL: null,
         provider: "google" as const,
         avatarEmoji: "🦊",
-        createdAt: null,
-        lastSeen: null,
-      };
+      });
       set({ isAuthenticated: true, user: bypassProfile, isLoading: false });
       return;
     }
@@ -125,16 +147,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         message.includes("configured")
       ) {
         console.log("⚠️ Bypassing Google Sign-In with Simulation User...");
-        const bypassProfile = {
+        const bypassProfile = await getSimulatedProfile("bypass-google", {
           uid: "bypass-google",
           displayName: "Harlein 🦊",
           email: "harlein@wander.app",
           photoURL: null,
           provider: "google" as const,
           avatarEmoji: "🦊",
-          createdAt: null,
-          lastSeen: null,
-        };
+        });
         set({ isAuthenticated: true, user: bypassProfile, isLoading: false });
         return;
       }
@@ -148,16 +168,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
     // Auto-bypass langsung di Web
     if (Platform.OS === "web") {
-      const bypassProfile = {
+      const bypassProfile = await getSimulatedProfile("bypass-apple", {
         uid: "bypass-apple",
         displayName: "Harlein 🍎",
         email: "harlein@wander.app",
         photoURL: null,
         provider: "apple" as const,
         avatarEmoji: "🍎",
-        createdAt: null,
-        lastSeen: null,
-      };
+      });
       set({ isAuthenticated: true, user: bypassProfile, isLoading: false });
       return;
     }
@@ -186,16 +204,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         message.includes("configured")
       ) {
         console.log("⚠️ Bypassing Apple Sign-In with Simulation User...");
-        const bypassProfile = {
+        const bypassProfile = await getSimulatedProfile("bypass-apple", {
           uid: "bypass-apple",
           displayName: "Harlein 🍎",
           email: "harlein@wander.app",
           photoURL: null,
           provider: "apple" as const,
           avatarEmoji: "🍎",
-          createdAt: null,
-          lastSeen: null,
-        };
+        });
         set({ isAuthenticated: true, user: bypassProfile, isLoading: false });
         return;
       }
@@ -220,4 +236,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   setLoading: (loading: boolean) => set({ isLoading: loading }),
   clearError: () => set({ error: null }),
+  updateLocalUser: (fields: Partial<UserProfile>) => {
+    const currentUser = get().user;
+    if (currentUser) {
+      set({ user: { ...currentUser, ...fields } });
+    }
+  },
 }));

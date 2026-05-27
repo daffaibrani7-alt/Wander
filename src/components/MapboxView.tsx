@@ -34,6 +34,7 @@ export interface MapboxViewProps {
     displayName: string;
     photoURL: string | null;
     avatarEmoji: string;
+    statusEmoji?: string;
   } | null;
   userBatteryLevel?: number;
   userIsCharging?: boolean;
@@ -50,6 +51,7 @@ export interface MapboxViewProps {
 // Custom HTML for Leaflet markers matching high-fidelity MapMarker design
 function createMarkerHtml(
   avatarEmoji: string,
+  photoURL: string | null,
   displayName: string,
   batteryLevel: number,
   isCharging: boolean,
@@ -85,8 +87,14 @@ function createMarkerHtml(
         justify-content: center;
         box-shadow: ${glowShadow};
         position: relative;
+        overflow: hidden;
       ">
-        <span style="font-size: 22px;">${avatarEmoji}</span>
+        ${photoURL ? `
+          <img src="${photoURL}" style="width: 100%; height: 100%; border-radius: 50%; object-fit: cover;" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';" />
+          <span style="font-size: 22px; display: none;">${avatarEmoji}</span>
+        ` : `
+          <span style="font-size: 22px;">${avatarEmoji}</span>
+        `}
         
         <!-- Activity / Geofence Status Badge -->
         ${(geofence || (activity && activity !== "online")) ? `
@@ -436,7 +444,8 @@ const MapboxViewComponent = forwardRef<MapboxViewRef, MapboxViewProps>(
       activeKeys.add(meKey);
 
       const meHtml = createMarkerHtml(
-        profile?.avatarEmoji || "🦊",
+        profile?.statusEmoji || profile?.avatarEmoji || "🦊",
+        profile?.photoURL || null,
         profile?.displayName || "Saya",
         battLvl,
         charging,
@@ -474,6 +483,7 @@ const MapboxViewComponent = forwardRef<MapboxViewRef, MapboxViewProps>(
             ? createClusterMarkerHtml(node.friends)
             : createMarkerHtml(
                 node.friends[0].avatarEmoji,
+                node.friends[0].avatarUrl || null,
                 node.friends[0].displayName,
                 node.friends[0].batteryLevel,
                 node.friends[0].isCharging,

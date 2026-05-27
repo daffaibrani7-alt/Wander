@@ -16,6 +16,9 @@ export interface UserProfile {
   photoURL: string | null;
   provider: "google" | "apple" | "unknown";
   avatarEmoji: string;
+  bio?: string;
+  statusEmoji?: string;
+  statusText?: string;
   createdAt: Timestamp | null;
   lastSeen: Timestamp | null;
 }

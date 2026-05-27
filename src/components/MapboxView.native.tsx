@@ -28,6 +28,7 @@ export interface MapboxViewProps {
     displayName: string;
     photoURL: string | null;
     avatarEmoji: string;
+    statusEmoji?: string;
   } | null;
   userBatteryLevel?: number;
   userIsCharging?: boolean;
@@ -548,6 +549,7 @@ function FallbackMapView({
     displayName: string;
     photoURL: string | null;
     avatarEmoji: string;
+    statusEmoji?: string;
   } | null;
   userBatteryLevel?: number;
   userIsCharging?: boolean;
@@ -710,7 +712,7 @@ function FallbackMapView({
           <MapMarker
             displayName={userProfile?.displayName || "Saya"}
             avatarUrl={userProfile?.photoURL || ""}
-            avatarEmoji={userProfile?.avatarEmoji || "🦊"}
+            avatarEmoji={userProfile?.statusEmoji || userProfile?.avatarEmoji || "🦊"}
             batteryLevel={userBatteryLevel}
             isCharging={userIsCharging}
             ghostMode={userGhostMode}
@@ -945,7 +947,7 @@ const MapboxViewComponent = forwardRef<MapboxViewRef, MapboxViewProps>(
               <MapMarker
                 displayName={userProfile?.displayName || "Saya"}
                 avatarUrl={userProfile?.photoURL || ""}
-                avatarEmoji={userProfile?.avatarEmoji || "🦊"}
+                avatarEmoji={userProfile?.statusEmoji || userProfile?.avatarEmoji || "🦊"}
                 batteryLevel={userBatteryLevel}
                 isCharging={userIsCharging}
                 ghostMode={userGhostMode}

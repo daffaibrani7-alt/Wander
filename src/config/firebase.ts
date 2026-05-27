@@ -10,6 +10,7 @@ import {
   persistentLocalCache,
   persistentMultipleTabManager,
 } from "firebase/firestore";
+import { getStorage } from "firebase/storage";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 // Safe fallback for Firebase Config
@@ -35,6 +36,7 @@ export const isFirebaseConfigured =
 let app;
 let db: any = null;
 let auth: any = null;
+let storage: any = null;
 
 if (isFirebaseConfigured) {
   try {
@@ -59,11 +61,13 @@ if (isFirebaseConfigured) {
         tabManager: persistentMultipleTabManager(),
       }),
     });
+    storage = getStorage(app);
     console.log("🔥 Firebase initialized successfully!");
   } catch (error) {
     console.error("⚠️ Firebase initialization failed:", error);
     db = null;
     auth = null;
+    storage = null;
   }
 } else {
   console.log(
@@ -71,4 +75,4 @@ if (isFirebaseConfigured) {
   );
 }
 
-export { db, auth };
+export { db, auth, storage };

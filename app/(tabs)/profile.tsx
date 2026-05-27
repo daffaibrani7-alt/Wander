@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from "react";
 import { View, Text, StyleSheet, Pressable, ScrollView, Switch, SafeAreaView, Platform, TextInput } from "react-native";
-import { User, Battery, Shield, ArrowLeft, RefreshCw, Zap, Bell, PlusCircle, Moon, LogOut } from "lucide-react-native";
+import { Battery, Shield, ArrowLeft, RefreshCw, Zap, Bell, PlusCircle, Moon, LogOut } from "lucide-react-native";
 import { GlassCard } from "../../src/components/GlassCard";
 import { COLORS } from "../../src/theme/colors";
 import { useThemeStore } from "../../src/store/useThemeStore";
 import { useAuthStore } from "../../src/store/useAuthStore";
 import { useFriendStore } from "../../src/store/useFriendStore";
 import { useRouter } from "expo-router";
+import { Avatar } from "../../src/components/Avatar";
+import { ProfileEditor } from "../../src/components/ProfileEditor";
 
 export default function ProfileScreen() {
   const router = useRouter();
@@ -18,6 +20,7 @@ export default function ProfileScreen() {
   const [selectedEmoji, setSelectedEmoji] = useState("😎");
   const emojis = ["😎", "🛹", "🎮", "🦄", "🍿", "🍕", "😴", "⚡️"];
   const [searchQuery, setSearchQuery] = useState("");
+  const [showEditor, setShowEditor] = useState(false);
 
   const {
     friends,
@@ -67,35 +70,48 @@ export default function ProfileScreen() {
         {/* User Profile Apple Card */}
         <GlassCard style={styles.userCard}>
           <View style={styles.userRow}>
-            <View style={[styles.avatarGlow, { borderColor: COLORS.cyan }]}>
-              <View style={[styles.avatarInner, { backgroundColor: isDark ? "#1C1C1E" : "#E5E5EA" }]}>
-                <User size={32} color={theme.text} />
-              </View>
-              <Text style={styles.avatarEmoji}>{selectedEmoji}</Text>
-            </View>
+            <Avatar
+              uri={user?.photoURL}
+              emoji={user?.statusEmoji || user?.avatarEmoji || "🦊"}
+              size={72}
+              showGlow
+              glowColor={COLORS.cyan}
+            />
             <View style={styles.userInfo}>
               <Text style={[styles.userName, { color: theme.text }]}>{user?.displayName || "Wanderer"}</Text>
               <Text style={[styles.userPhone, { color: theme.textMuted }]}>{user?.email || "Belum ada email"}</Text>
+              {user?.bio ? (
+                <Text style={[styles.userBio, { color: theme.textMuted }]} numberOfLines={2}>
+                  {user.bio}
+                </Text>
+              ) : null}
             </View>
           </View>
 
-          {/* Vibe Picker */}
-          <Text style={[styles.vibeTitle, { color: theme.textMuted }]}>UBAH STATUS VIBE</Text>
-          <View style={styles.emojiList}>
-            {emojis.map((emoji) => (
-              <Pressable
-                key={emoji}
-                onPress={() => setSelectedEmoji(emoji)}
-                style={[
-                  styles.emojiButton,
-                  selectedEmoji === emoji && { backgroundColor: isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.06)" },
-                ]}
-              >
-                <Text style={styles.emojiText}>{emoji}</Text>
-              </Pressable>
-            ))}
+          {/* Vibe Status Summary */}
+          <View style={[styles.statusSummary, { borderColor: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)" }]}>
+            <Text style={styles.statusSummaryEmoji}>{user?.statusEmoji || user?.avatarEmoji || "🦊"}</Text>
+            <Text style={[styles.statusSummaryText, { color: theme.text }]} numberOfLines={1}>
+              {user?.statusText || "Tidak ada status aktivitas saat ini"}
+            </Text>
           </View>
+
+          {/* Action to Edit Profile */}
+          <Pressable
+            id="open-profile-editor-btn"
+            onPress={() => setShowEditor(true)}
+            style={[styles.editProfileBtn, { backgroundColor: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.03)" }]}
+          >
+            <Text style={[styles.editProfileBtnText, { color: COLORS.cyan }]}>🎨 Ubah Profil & Status</Text>
+          </Pressable>
         </GlassCard>
+
+        {/* ─── Profile Customization Modal Editor ─── */}
+        <ProfileEditor
+          visible={showEditor}
+          onClose={() => setShowEditor(false)}
+          userProfile={user}
+        />
 
         {/* ─── KELOLA TEMAN (FRIEND SYSTEM) ─── */}
         <Text style={[styles.sectionTitle, { color: theme.textMuted }]}>Sistem Pertemanan 👥</Text>
@@ -600,5 +616,45 @@ const styles = StyleSheet.create({
   unfriendBtn: {
     paddingHorizontal: 8,
     paddingVertical: 6,
+  },
+  userBio: {
+    fontSize: 11,
+    marginTop: 4,
+    fontFamily: "System",
+    fontWeight: "500",
+  },
+  statusSummary: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    backgroundColor: "rgba(255,255,255,0.03)",
+  },
+  statusSummaryEmoji: {
+    fontSize: 16,
+  },
+  statusSummaryText: {
+    fontSize: 12,
+    fontWeight: "600",
+    flex: 1,
+    fontFamily: "System",
+  },
+  editProfileBtn: {
+    marginTop: 12,
+    borderRadius: 12,
+    paddingVertical: 11,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "rgba(0, 240, 255, 0.15)",
+  },
+  editProfileBtnText: {
+    fontSize: 13,
+    fontWeight: "800",
+    fontFamily: "System",
   },
 });
