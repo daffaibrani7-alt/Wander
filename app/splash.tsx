@@ -2,8 +2,8 @@ import React, { useEffect, useRef } from "react";
 import { View, Text, StyleSheet, Animated } from "react-native";
 import { useRouter } from "expo-router";
 import { Compass } from "lucide-react-native";
-import { useThemeStore } from "../src/store/useThemeStore";
-import { COLORS } from "../src/theme/colors";
+import { useThemeStore } from "@/features/settings/store/useThemeStore";
+import { COLORS } from "@/shared/theme/colors";
 
 export default function SplashScreen() {
   const router = useRouter();

@@ -2,10 +2,10 @@ import React, { useEffect } from "react";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { View, StyleSheet } from "react-native";
-import "../src/services/locationService";
-import { useThemeStore } from "../src/store/useThemeStore";
-import { useAuthStore } from "../src/store/useAuthStore";
-import { COLORS } from "../src/theme/colors";
+import "@/features/map/services/locationService";
+import { useThemeStore } from "@/features/settings/store/useThemeStore";
+import { useAuthStore } from "@/features/auth/store/useAuthStore";
+import { COLORS } from "@/shared/theme/colors";
 
 export default function RootLayout() {
   const isDark = useThemeStore((state) => state.isDark);

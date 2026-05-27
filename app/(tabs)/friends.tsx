@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from "react";
 import { View, Text, StyleSheet, TextInput, Pressable, ScrollView, Image, SafeAreaView, Platform } from "react-native";
 import { Search, UserPlus, ArrowLeft, Check, Users } from "lucide-react-native";
-import { GlassCard } from "../../src/components/GlassCard";
-import { COLORS } from "../../src/theme/colors";
-import { useThemeStore } from "../../src/store/useThemeStore";
-import { MockService, FriendLocation } from "../../src/services/mockService";
+import { GlassCard } from "@/shared/components/GlassCard";
+import { COLORS } from "@/shared/theme/colors";
+import { useThemeStore } from "@/features/settings/store/useThemeStore";
+import { MockService, FriendLocation } from "@/features/friends/services/mockService";
 
 export default function FriendsScreen() {
   const isDark = useThemeStore((state) => state.isDark);

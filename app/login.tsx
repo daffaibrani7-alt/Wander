@@ -7,10 +7,10 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { useRouter } from "expo-router";
-import { useAuthStore } from "../src/store/useAuthStore";
-import { useThemeStore } from "../src/store/useThemeStore";
-import { COLORS } from "../src/theme/colors";
-import { AppleButton } from "../src/components/AppleButton";
+import { useAuthStore } from "@/features/auth/store/useAuthStore";
+import { useThemeStore } from "@/features/settings/store/useThemeStore";
+import { COLORS } from "@/shared/theme/colors";
+import { AppleButton } from "@/shared/components/AppleButton";
 import { Compass } from "lucide-react-native";
 import Animated, {
   FadeInDown,

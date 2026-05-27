@@ -1,9 +1,9 @@
 import { useEffect } from "react";
 import { useRouter } from "expo-router";
 import { View, ActivityIndicator } from "react-native";
-import { useAuthStore } from "../src/store/useAuthStore";
-import { COLORS } from "../src/theme/colors";
-import { useThemeStore } from "../src/store/useThemeStore";
+import { useAuthStore } from "@/features/auth/store/useAuthStore";
+import { COLORS } from "@/shared/theme/colors";
+import { useThemeStore } from "@/features/settings/store/useThemeStore";
 
 export default function IndexGateway() {
   const router = useRouter();

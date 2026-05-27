@@ -1,17 +1,17 @@
 import React, { useState, useEffect } from "react";
 import { View, Text, StyleSheet, Pressable, ScrollView, Switch, SafeAreaView, Platform, TextInput } from "react-native";
 import { Battery, Shield, ArrowLeft, RefreshCw, Zap, Bell, PlusCircle, Moon, LogOut } from "lucide-react-native";
-import { GlassCard } from "../../src/components/GlassCard";
-import { COLORS } from "../../src/theme/colors";
-import { useThemeStore } from "../../src/store/useThemeStore";
-import { useAuthStore } from "../../src/store/useAuthStore";
-import { useFriendStore } from "../../src/store/useFriendStore";
+import { GlassCard } from "@/shared/components/GlassCard";
+import { COLORS } from "@/shared/theme/colors";
+import { useThemeStore } from "@/features/settings/store/useThemeStore";
+import { useAuthStore } from "@/features/auth/store/useAuthStore";
+import { useFriendStore } from "@/features/friends/store/useFriendStore";
 import { useRouter } from "expo-router";
-import { Avatar } from "../../src/components/Avatar";
-import { ProfileEditor } from "../../src/components/ProfileEditor";
-import { useAchievementStore } from "../../src/store/useAchievementStore";
-import { useGamificationStore } from "../../src/store/useGamificationStore";
-import { getLevelInfoFromXP } from "../../src/services/progressionEngine";
+import { Avatar } from "@/shared/components/Avatar";
+import { ProfileEditor } from "@/features/profile/components/ProfileEditor";
+import { useAchievementStore } from "@/features/achievements/store/useAchievementStore";
+import { useGamificationStore } from "@/features/exploration/store/useGamificationStore";
+import { getLevelInfoFromXP } from "@/features/achievements/services/progressionEngine";
 
 export default function ProfileScreen() {
   const router = useRouter();

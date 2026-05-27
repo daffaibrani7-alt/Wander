@@ -2,8 +2,8 @@ import React from "react";
 import { Tabs } from "expo-router";
 import { Compass, Users, User } from "lucide-react-native";
 import { Platform, StyleSheet } from "react-native";
-import { useThemeStore } from "../../src/store/useThemeStore";
-import { COLORS } from "../../src/theme/colors";
+import { useThemeStore } from "@/features/settings/store/useThemeStore";
+import { COLORS } from "@/shared/theme/colors";
 
 export default function TabLayout() {
   const isDark = useThemeStore((state) => state.isDark);
