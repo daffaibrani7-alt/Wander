@@ -15,6 +15,7 @@ import {
   Easing,
   Dimensions,
   Platform,
+  Modal,
 } from "react-native";
 import { BlurView } from "expo-blur";
 import { MapPin, Navigation, Shield, Users } from "lucide-react-native";
@@ -124,39 +125,47 @@ export function LocationConsentModal({
   const borderColor = isDark ? "rgba(0, 240, 255, 0.15)" : "rgba(0, 85, 255, 0.1)";
 
   return (
-    <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
-      {/* Backdrop */}
-      <Animated.View
-        pointerEvents="auto"
-        style={[
-          StyleSheet.absoluteFill,
-          {
-            backgroundColor: "rgba(0, 0, 0, 0.65)",
-            opacity: backdropOpacity,
-          },
-        ]}
-      />
+    <Modal
+      transparent
+      visible={visible}
+      animationType="none"
+      statusBarTranslucent
+      onRequestClose={onDeny}
+    >
+      <View style={styles.modalOverlay}>
+        {/* Backdrop */}
+        <Animated.View
+          pointerEvents="auto"
+          style={[
+            StyleSheet.absoluteFill,
+            {
+              backgroundColor: "rgba(0, 0, 0, 0.65)",
+              opacity: backdropOpacity,
+            },
+          ]}
+        />
 
-      {/* Bottom Sheet */}
-      <Animated.View
-        style={[
-          styles.sheet,
-          { transform: [{ translateY: sheetTranslate }] },
-        ]}
-      >
-        {Platform.OS === "web" ? (
-          <View style={[styles.sheetInner, { backgroundColor: glassBg, borderColor }]}>
-            {renderContent()}
-          </View>
-        ) : (
-          <BlurView intensity={90} tint={isDark ? "dark" : "light"} style={styles.blurFill}>
+        {/* Bottom Sheet */}
+        <Animated.View
+          style={[
+            styles.sheet,
+            { transform: [{ translateY: sheetTranslate }] },
+          ]}
+        >
+          {Platform.OS === "web" ? (
             <View style={[styles.sheetInner, { backgroundColor: glassBg, borderColor }]}>
               {renderContent()}
             </View>
-          </BlurView>
-        )}
-      </Animated.View>
-    </View>
+          ) : (
+            <BlurView intensity={90} tint={isDark ? "dark" : "light"} style={styles.blurFill}>
+              <View style={[styles.sheetInner, { backgroundColor: glassBg, borderColor }]}>
+                {renderContent()}
+              </View>
+            </BlurView>
+          )}
+        </Animated.View>
+      </View>
+    </Modal>
   );
 
   function renderContent() {
@@ -257,6 +266,10 @@ export function LocationConsentModal({
 }
 
 const styles = StyleSheet.create({
+  modalOverlay: {
+    flex: 1,
+    justifyContent: "flex-end",
+  },
   sheet: {
     position: "absolute",
     bottom: 0,
