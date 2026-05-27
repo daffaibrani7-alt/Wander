@@ -60,6 +60,8 @@ import { ExplorationDashboard } from "../../src/components/ExplorationDashboard"
 import { useNetworkStore } from "../../src/store/useNetworkStore";
 import { useSyncQueueStore } from "../../src/store/useSyncQueueStore";
 import { LocationConsentModal } from "../../src/components/LocationConsentModal";
+import { useAchievementStore } from "../../src/store/useAchievementStore";
+import { AchievementUnlockPopup } from "../../src/components/AchievementUnlockPopup";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const CONSENT_KEY = "wander_location_consent";
@@ -236,6 +238,14 @@ export default function HomeMapScreen() {
   useEffect(() => {
     if (userProfile?.uid) {
       const unsubscribe = initializeGamificationStore(userProfile.uid);
+      return () => unsubscribe();
+    }
+  }, [userProfile?.uid]);
+
+  // Dengarkan sistem level/badge dan misi secara real-time
+  useEffect(() => {
+    if (userProfile?.uid) {
+      const unsubscribe = useAchievementStore.getState().initializeAchievementStore(userProfile.uid);
       return () => unsubscribe();
     }
   }, [userProfile?.uid]);
@@ -823,6 +833,9 @@ export default function HomeMapScreen() {
         emoji={islandAlert.emoji}
         onDismiss={() => setIslandAlert((prev) => ({ ...prev, visible: false }))}
       />
+
+      {/* ── Achievement & Badge Unlock Popup Banner Overlay ── */}
+      <AchievementUnlockPopup />
 
       {/* ── Right-side Floating Action Controls ── */}
       {!isMapPickMode && (

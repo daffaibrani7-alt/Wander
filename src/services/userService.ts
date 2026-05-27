@@ -19,6 +19,10 @@ export interface UserProfile {
   bio?: string;
   statusEmoji?: string;
   statusText?: string;
+  equippedBadgeId?: string | null;
+  equippedBadgeEmoji?: string | null;
+  level?: number;
+  xp?: number;
   createdAt: Timestamp | null;
   lastSeen: Timestamp | null;
 }

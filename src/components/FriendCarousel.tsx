@@ -69,7 +69,7 @@ function FriendCardComponent({ friend, isSelected, isDark, activity, onPress }: 
         style={[styles.friendName, { color: isDark ? "#FFF" : "#000" }]}
         numberOfLines={1}
       >
-        {friend.displayName}
+        {friend.equippedBadgeEmoji ? `${friend.equippedBadgeEmoji} ` : ""}{friend.displayName}
       </Text>
       <Text
         style={[styles.activityText, { color: isDark ? "rgba(255,255,255,0.6)" : "rgba(0,0,0,0.5)" }]}
@@ -131,7 +131,8 @@ const FriendCard = memo(FriendCardComponent, (prev, next) => {
     prev.friend.ghostMode === next.friend.ghostMode &&
     prev.friend.geofence === next.friend.geofence &&
     prev.friend.avatarEmoji === next.friend.avatarEmoji &&
-    prev.friend.displayName === next.friend.displayName
+    prev.friend.displayName === next.friend.displayName &&
+    prev.friend.equippedBadgeEmoji === next.friend.equippedBadgeEmoji
   );
 });
 

@@ -15,6 +15,8 @@ export interface FriendLocation {
   distanceText?: string;
   statusText?: string;
   updatedAt: string;
+  equippedBadgeEmoji?: string;
+  level?: number;
 }
 
 // Initial Mock Friends around central Jakarta / user center (default user at -6.2088, 106.8456)
@@ -33,6 +35,8 @@ const MOCK_FRIENDS: FriendLocation[] = [
     geofence: "work",
     statusText: "Active 2m ago",
     updatedAt: "Baru saja",
+    equippedBadgeEmoji: "👑",
+    level: 12,
   },
   {
     uid: "sim-2",
@@ -48,6 +52,8 @@ const MOCK_FRIENDS: FriendLocation[] = [
     geofence: "home",
     statusText: "Frozen (2 hours ago)",
     updatedAt: "2 jam lalu",
+    equippedBadgeEmoji: "🏔️",
+    level: 5,
   },
   {
     uid: "sim-3",
@@ -65,6 +71,8 @@ const MOCK_FRIENDS: FriendLocation[] = [
     geofence: "school",
     statusText: "Blurry (1.5km radius)",
     updatedAt: "Aktif",
+    equippedBadgeEmoji: "🔮",
+    level: 8,
   }
 ];
 

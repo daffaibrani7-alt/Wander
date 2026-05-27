@@ -9,6 +9,8 @@ import { useGeofenceStore } from "./useGeofenceStore";
 import { achievementService } from "../services/achievementService";
 import { useNetworkStore } from "./useNetworkStore";
 import { useSyncQueueStore } from "./useSyncQueueStore";
+import { useAchievementStore } from "./useAchievementStore";
+import { getStreakMultiplier } from "../services/progressionEngine";
 
 // Bounding tile degree size (~30m x 30m grid)
 export const TILE_SIZE = 0.0003;
@@ -146,6 +148,17 @@ export const useExplorationStore = create<ExplorationStateStore>((set, get) => {
       useGamificationStore.getState().incrementTileFrequency(tileKey);
       // Increment total explored distance proportional to grid size (approx 30m / 0.03 km per unlocked tile)
       useGamificationStore.getState().addDistanceAction(0.03);
+
+      // ─── Phase 11 Progression Triggers ───
+      // 1. Increment daily/weekly missions counts reactively
+      useAchievementStore.getState().incrementMissionProgressAction("TILES", 1);
+      useAchievementStore.getState().incrementMissionProgressAction("DISTANCE", 0.03);
+
+      // 2. Gain XP reward (15 XP baseline, multiplied by active streak bonus)
+      const streak = useGamificationStore.getState().streakCount;
+      const mult = getStreakMultiplier(streak);
+      const xpReward = Math.round(15 * mult);
+      useAchievementStore.getState().addXpAction(xpReward, "Eksplorasi Grid Peta");
 
       // Evaluate achievements
       try {

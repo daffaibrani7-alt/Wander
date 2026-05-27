@@ -9,6 +9,9 @@ import { useFriendStore } from "../../src/store/useFriendStore";
 import { useRouter } from "expo-router";
 import { Avatar } from "../../src/components/Avatar";
 import { ProfileEditor } from "../../src/components/ProfileEditor";
+import { useAchievementStore } from "../../src/store/useAchievementStore";
+import { useGamificationStore } from "../../src/store/useGamificationStore";
+import { getLevelInfoFromXP } from "../../src/services/progressionEngine";
 
 export default function ProfileScreen() {
   const router = useRouter();
@@ -21,6 +24,17 @@ export default function ProfileScreen() {
   const emojis = ["😎", "🛹", "🎮", "🦄", "🍿", "🍕", "😴", "⚡️"];
   const [searchQuery, setSearchQuery] = useState("");
   const [showEditor, setShowEditor] = useState(false);
+
+  // Gamification & Progression states
+  const xp = useAchievementStore((state) => state.xp);
+  const level = useAchievementStore((state) => state.level);
+  const equippedBadgeEmoji = useAchievementStore((state) => state.equippedBadgeEmoji);
+  const unlockedBadgesCount = useAchievementStore((state) => state.unlockedBadges.length);
+
+  const totalDistance = useGamificationStore((state) => state.totalDistance);
+  const streakCount = useGamificationStore((state) => state.streakCount);
+
+  const levelInfo = getLevelInfoFromXP(xp);
 
   const {
     friends,
@@ -40,8 +54,14 @@ export default function ProfileScreen() {
 
   useEffect(() => {
     if (user?.uid) {
-      const unsubscribe = initializeFriendListener(user.uid);
-      return () => unsubscribe();
+      const unsubFriend = initializeFriendListener(user.uid);
+      const unsubAch = useAchievementStore.getState().initializeAchievementStore(user.uid);
+      const unsubGam = useGamificationStore.getState().initializeGamificationStore(user.uid);
+      return () => {
+        unsubFriend();
+        unsubAch();
+        unsubGam();
+      };
     }
   }, [user?.uid]);
 
@@ -78,7 +98,9 @@ export default function ProfileScreen() {
               glowColor={COLORS.cyan}
             />
             <View style={styles.userInfo}>
-              <Text style={[styles.userName, { color: theme.text }]}>{user?.displayName || "Wanderer"}</Text>
+              <Text style={[styles.userName, { color: theme.text }]}>
+                {user?.displayName || "Wanderer"} {equippedBadgeEmoji ? ` ${equippedBadgeEmoji}` : ""}
+              </Text>
               <Text style={[styles.userPhone, { color: theme.textMuted }]}>{user?.email || "Belum ada email"}</Text>
               {user?.bio ? (
                 <Text style={[styles.userBio, { color: theme.textMuted }]} numberOfLines={2}>
@@ -94,6 +116,30 @@ export default function ProfileScreen() {
             <Text style={[styles.statusSummaryText, { color: theme.text }]} numberOfLines={1}>
               {user?.statusText || "Tidak ada status aktivitas saat ini"}
             </Text>
+          </View>
+
+          {/* XP & Level Progression Block */}
+          <View style={styles.progressionContainer}>
+            <View style={styles.progressionHeader}>
+              <View style={[styles.levelBadge, { backgroundColor: COLORS.cyan + "20", borderColor: COLORS.cyan }]}>
+                <Text style={[styles.levelText, { color: COLORS.cyan }]}>Lv. {level}</Text>
+              </View>
+              <Text style={[styles.xpText, { color: theme.textMuted }]}>
+                {levelInfo.currentLevelXp} / {levelInfo.nextLevelXp} XP
+              </Text>
+            </View>
+            <View style={[styles.progressBarBg, { backgroundColor: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.05)" }]}>
+              <View
+                style={[
+                  styles.progressBarFill,
+                  {
+                    width: `${levelInfo.progressPercent * 100}%`,
+                    backgroundColor: COLORS.cyan,
+                    shadowColor: COLORS.cyan,
+                  },
+                ]}
+              />
+            </View>
           </View>
 
           {/* Action to Edit Profile */}
@@ -303,6 +349,28 @@ export default function ProfileScreen() {
                 <Text style={[styles.statusLabel, { color: theme.textMuted }]}>Mode Radar</Text>
                 <Text style={[styles.statusVal, { color: theme.text }]}>Precise</Text>
               </View>
+            </View>
+          </View>
+        </GlassCard>
+
+        {/* Gamifikasi & Statistik Eksplorasi */}
+        <Text style={[styles.sectionTitle, { color: theme.textMuted }]}>Gamifikasi & Statistik 🏆</Text>
+        <GlassCard style={styles.friendCard}>
+          <View style={styles.statsRowGrid}>
+            <View style={styles.statsGridItem}>
+              <Text style={styles.statsEmoji}>🏔️</Text>
+              <Text style={[styles.statsLabelSmall, { color: theme.textMuted }]}>Total Jarak</Text>
+              <Text style={[styles.statsValue, { color: theme.text }]}>{totalDistance} km</Text>
+            </View>
+            <View style={styles.statsGridItem}>
+              <Text style={styles.statsEmoji}>🔥</Text>
+              <Text style={[styles.statsLabelSmall, { color: theme.textMuted }]}>Streak Hari</Text>
+              <Text style={[styles.statsValue, { color: theme.text }]}>{streakCount} Hari</Text>
+            </View>
+            <View style={styles.statsGridItem}>
+              <Text style={styles.statsEmoji}>🔓</Text>
+              <Text style={[styles.statsLabelSmall, { color: theme.textMuted }]}>Badge Buka</Text>
+              <Text style={[styles.statsValue, { color: theme.text }]}>{unlockedBadgesCount} / 12</Text>
             </View>
           </View>
         </GlassCard>
@@ -655,6 +723,72 @@ const styles = StyleSheet.create({
   editProfileBtnText: {
     fontSize: 13,
     fontWeight: "800",
+    fontFamily: "System",
+  },
+  progressionContainer: {
+    marginTop: 16,
+    paddingHorizontal: 4,
+  },
+  progressionHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  levelBadge: {
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+  },
+  levelText: {
+    fontSize: 11,
+    fontWeight: "900",
+    fontFamily: "System",
+  },
+  xpText: {
+    fontSize: 11,
+    fontWeight: "700",
+    fontFamily: "System",
+  },
+  progressBarBg: {
+    height: 6,
+    borderRadius: 3,
+    overflow: "hidden",
+  },
+  progressBarFill: {
+    height: "100%",
+    borderRadius: 3,
+  },
+  statsRowGrid: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  statsGridItem: {
+    flex: 1,
+    alignItems: "center",
+    paddingVertical: 10,
+    backgroundColor: "rgba(255, 255, 255, 0.02)",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.04)",
+  },
+  statsEmoji: {
+    fontSize: 20,
+    marginBottom: 4,
+  },
+  statsLabelSmall: {
+    fontSize: 10,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    marginBottom: 2,
+    fontFamily: "System",
+  },
+  statsValue: {
+    fontSize: 14,
+    fontWeight: "900",
     fontFamily: "System",
   },
 });

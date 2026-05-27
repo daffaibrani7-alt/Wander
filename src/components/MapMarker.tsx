@@ -14,6 +14,7 @@ interface MapMarkerProps {
   geofence?: "home" | "work" | "school" | "cafe" | "custom" | null;
   isMe?: boolean;
   isOnline?: boolean;
+  equippedBadgeEmoji?: string | null;
 }
 
 // Pure helper — defined outside component so it's never recreated
@@ -44,7 +45,8 @@ function arePropsEqual(prev: MapMarkerProps, next: MapMarkerProps): boolean {
     prev.activity === next.activity &&
     prev.geofence === next.geofence &&
     prev.isMe === next.isMe &&
-    prev.isOnline === next.isOnline
+    prev.isOnline === next.isOnline &&
+    prev.equippedBadgeEmoji === next.equippedBadgeEmoji
   );
 }
 
@@ -59,6 +61,7 @@ function MapMarkerComponent({
   geofence,
   isMe = false,
   isOnline = true,
+  equippedBadgeEmoji = null,
 }: MapMarkerProps) {
   const scaleAnim = useRef(new Animated.Value(0)).current;
   const [imageError, setImageError] = useState(false);
@@ -131,6 +134,13 @@ function MapMarkerComponent({
               {!geofence && activity === "traveling" && "✈️"}
               {!geofence && activity === "idle" && "⏳"}
             </Text>
+          </View>
+        )}
+
+        {/* Floating Equipped Badge (Progression Badge) */}
+        {equippedBadgeEmoji && (
+          <View style={[styles.equippedBadge, { backgroundColor: isMe ? "#00F0FF" : "#FF8A00" }]}>
+            <Text style={styles.equippedBadgeText}>{equippedBadgeEmoji}</Text>
           </View>
         )}
 
@@ -269,6 +279,27 @@ const styles = StyleSheet.create({
     borderRightColor: "transparent",
     borderTopColor: "#2BE080",
     marginTop: -2,
+  },
+  equippedBadge: {
+    position: "absolute",
+    bottom: 12,
+    left: -8,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    borderWidth: 1.5,
+    borderColor: "#1C1C1E",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 2.0,
+    elevation: 4,
+    zIndex: 3,
+  },
+  equippedBadgeText: {
+    fontSize: 9,
   },
 });
 export default MapMarker;
