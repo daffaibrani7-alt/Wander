@@ -474,9 +474,23 @@ const MapboxViewComponent = forwardRef<MapboxViewRef, MapboxViewProps>(
       // 4b. Friend Markers & Clusters
       if (currentFriends) {
         const clusteredNodes = getClusteredNodes(currentFriends, zoomLevel);
+        const bounds = mapRef.current.getBounds();
+        const paddedBounds = bounds.pad(0.1); // 10% padding for smooth reveal on drag
 
         clusteredNodes.forEach((node) => {
           const nodeKey = node.isCluster ? `cluster-${node.id}` : `friend-${node.id}`;
+
+          // VIEWPORT CULLING: Skip markers that are outside the padded bounds
+          const isWithinViewport = paddedBounds.contains([node.latitude, node.longitude]);
+          if (!isWithinViewport) {
+            if (currentMarkers[nodeKey]) {
+              currentMarkers[nodeKey].remove();
+              delete currentMarkers[nodeKey];
+              delete htmlCache[nodeKey];
+            }
+            return;
+          }
+
           activeKeys.add(nodeKey);
 
           const fHtml = node.isCluster

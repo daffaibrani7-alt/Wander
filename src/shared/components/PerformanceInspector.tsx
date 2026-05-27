@@ -5,63 +5,58 @@
  * Tracks FPS, active listeners count, sync queue lengths, faked memory footprint,
  * and fuzzed privacy status overlays.
  */
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
   StyleSheet,
   Pressable,
-  Animated,
-  PanResponder,
 } from "react-native";
 import { BlurView } from "expo-blur";
 import { WANDER_HAPTICS } from "@/shared/theme/haptics";
 import { useSyncQueueStore } from "@/shared/store/useSyncQueueStore";
 import { usePrivacyStore } from "@/shared/store/usePrivacyStore";
 import { useLocationStore } from "@/features/map/store/useLocationStore";
+import { useFps } from "@/shared/monitoring/fpsMonitor";
+import { firestoreMonitor } from "@/shared/monitoring/firestoreMonitor";
+import { batteryMonitor } from "@/shared/monitoring/batteryMonitor";
+import { listenerRegistry } from "@/shared/realtime/listenerRegistry";
 
 export function PerformanceInspector({ isDark }: { isDark: boolean }) {
   const [isOpen, setIsOpen] = useState(false);
-  const [fps, setFps] = useState(60);
+  const fps = useFps();
   const [fakeMemory, setFakeMemory] = useState(38.4);
+  const [metrics, setMetrics] = useState(firestoreMonitor.getMetrics());
+  const [batteryStats, setBatteryStats] = useState(batteryMonitor.getDiagnostics());
+
   const syncQueue = useSyncQueueStore((s) => s.queue);
   const privacy = usePrivacyStore();
-  const location = useLocationStore();
 
-  const fpsRef = useRef(60);
-  const frames = useRef(0);
-  const lastTime = useRef(Date.now());
-
-  // 1. Calculate real FPS using requestAnimationFrame
   useEffect(() => {
-    let animFrame: number;
-    const calcFps = () => {
-      frames.current++;
-      const now = Date.now();
-      const delta = now - lastTime.current;
-      
-      if (delta >= 1000) {
-        const computedFps = Math.min(60, Math.round((frames.current * 1000) / delta));
-        fpsRef.current = computedFps;
-        setFps(computedFps);
-        frames.current = 0;
-        lastTime.current = now;
+    if (!isOpen) return;
 
-        // Faux memory flux to look alive and interactive
-        setFakeMemory((prev) => {
-          const shift = (Math.random() - 0.5) * 0.4;
-          return Math.max(30, Math.min(60, parseFloat((prev + shift).toFixed(1))));
-        });
-      }
-      animFrame = requestAnimationFrame(calcFps);
+    // Pulse memory value slowly
+    const memoryTimer = setInterval(() => {
+      setFakeMemory((prev) => {
+        const shift = (Math.random() - 0.5) * 0.4;
+        return Math.max(30, Math.min(60, parseFloat((prev + shift).toFixed(1))));
+      });
+    }, 2000);
+
+    // Update real metrics
+    const statsTimer = setInterval(() => {
+      setMetrics(firestoreMonitor.getMetrics());
+      setBatteryStats(batteryMonitor.getDiagnostics());
+    }, 1000);
+
+    return () => {
+      clearInterval(memoryTimer);
+      clearInterval(statsTimer);
     };
+  }, [isOpen]);
 
-    animFrame = requestAnimationFrame(calcFps);
-    return () => cancelAnimationFrame(animFrame);
-  }, []);
-
-  const totalListeners = 3 + (location.trackingActive ? 3 : 0);
-  const batteryHealth = location.batteryLevel > 35 ? "GOOD" : location.batteryLevel > 15 ? "MODERATE" : "CRITICAL";
+  const totalListeners = listenerRegistry.getActiveCount();
+  const batteryHealth = batteryStats.batteryLevel > 35 ? "GOOD" : batteryStats.batteryLevel > 15 ? "MODERATE" : "CRITICAL";
 
   if (!isOpen) {
     return (
@@ -120,12 +115,19 @@ export function PerformanceInspector({ isDark }: { isDark: boolean }) {
         </View>
 
         <View style={styles.row}>
-          <Text style={styles.label}>ACTIVE GPS WATCHERS:</Text>
+          <Text style={styles.label}>ACTIVE LISTENERS:</Text>
           <Text style={styles.value}>{totalListeners} listeners</Text>
         </View>
 
         <View style={styles.row}>
-          <Text style={styles.label}>FIRESTORE PENDING SYNC:</Text>
+          <Text style={styles.label}>FIRESTORE READS / WRITES:</Text>
+          <Text style={styles.value}>
+            R: {metrics.reads} | W: {metrics.writes}
+          </Text>
+        </View>
+
+        <View style={styles.row}>
+          <Text style={styles.label}>PENDING SYNC QUEUE:</Text>
           <Text style={[styles.value, { color: syncQueue.length > 0 ? "#FF8A00" : "#2BE080" }]}>
             {syncQueue.length} jobs
           </Text>
@@ -134,7 +136,7 @@ export function PerformanceInspector({ isDark }: { isDark: boolean }) {
         <View style={styles.row}>
           <Text style={styles.label}>BATTERY IMPACT INDEX:</Text>
           <Text style={[styles.value, { color: batteryHealth === "GOOD" ? "#2BE080" : "#ff4757" }]}>
-            {batteryHealth} ({location.batteryLevel}%)
+            {batteryHealth} ({batteryStats.batteryLevel}% | {batteryStats.isCharging ? "Charging" : "Discharging"})
           </Text>
         </View>
 

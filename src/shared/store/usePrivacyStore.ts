@@ -31,6 +31,9 @@ interface PrivacyStateStore {
   ghostZones: GhostZone[];
   invisibleHours: InvisibleHours;
   friendPermissions: Record<string, "precise" | "approximate" | "hidden">;
+  delayedModeEnabled: boolean;
+  delayMinutes: number;
+  temporaryInvisibilityUntil: string | null;
   isLoaded: boolean;
 
   // Actions
@@ -40,9 +43,11 @@ interface PrivacyStateStore {
   removeGhostZone: (zoneId: string) => void;
   setInvisibleHours: (hours: InvisibleHours) => void;
   toggleFriendPermission: (friendUid: string, permission: "precise" | "approximate" | "hidden") => void;
+  setDelayedMode: (enabled: boolean, minutes: number) => void;
+  setTemporaryInvisibility: (untilIso: string | null) => void;
   
   // Evaluation Helper
-  getFuzzedLocation: (latitude: number, longitude: number) => { latitude: number; longitude: number; fuzzed: boolean };
+  getFuzzedLocation: (latitude: number, longitude: number) => { latitude: number; longitude: number; fuzzed: boolean; hidden?: boolean };
 }
 
 // Helper: Calculate distance in meters
@@ -67,6 +72,9 @@ export const usePrivacyStore = create<PrivacyStateStore>((set, get) => {
       ghostZones: get().ghostZones,
       invisibleHours: get().invisibleHours,
       friendPermissions: get().friendPermissions,
+      delayedModeEnabled: get().delayedModeEnabled,
+      delayMinutes: get().delayMinutes,
+      temporaryInvisibilityUntil: get().temporaryInvisibilityUntil,
     };
     await AsyncStorage.setItem(`wander_privacy_${userId}`, JSON.stringify(payload));
 
@@ -85,6 +93,9 @@ export const usePrivacyStore = create<PrivacyStateStore>((set, get) => {
     ghostZones: [],
     invisibleHours: { enabled: false, startHour: 22, endHour: 6 },
     friendPermissions: {},
+    delayedModeEnabled: false,
+    delayMinutes: 5,
+    temporaryInvisibilityUntil: null,
     isLoaded: false,
 
     initializePrivacyStore: async (userId) => {
@@ -97,6 +108,9 @@ export const usePrivacyStore = create<PrivacyStateStore>((set, get) => {
             ghostZones: parsed.ghostZones || [],
             invisibleHours: parsed.invisibleHours || { enabled: false, startHour: 22, endHour: 6 },
             friendPermissions: parsed.friendPermissions || {},
+            delayedModeEnabled: parsed.delayedModeEnabled || false,
+            delayMinutes: parsed.delayMinutes || 5,
+            temporaryInvisibilityUntil: parsed.temporaryInvisibilityUntil || null,
             isLoaded: true,
           });
         } else {
@@ -149,9 +163,30 @@ export const usePrivacyStore = create<PrivacyStateStore>((set, get) => {
       if (currentUser) saveState(currentUser.uid);
     },
 
+    setDelayedMode: (enabled, minutes) => {
+      set({ delayedModeEnabled: enabled, delayMinutes: minutes });
+      const currentUser = auth?.currentUser;
+      if (currentUser) saveState(currentUser.uid);
+    },
+
+    setTemporaryInvisibility: (untilIso) => {
+      set({ temporaryInvisibilityUntil: untilIso });
+      const currentUser = auth?.currentUser;
+      if (currentUser) saveState(currentUser.uid);
+    },
+
     getFuzzedLocation: (latitude, longitude) => {
-      const { sharingMode, ghostZones, invisibleHours } = get();
+      const { sharingMode, ghostZones, invisibleHours, temporaryInvisibilityUntil } = get();
       let fuzzed = false;
+
+      // 0. Check Temporary Invisibility incognito window
+      if (temporaryInvisibilityUntil) {
+        const now = new Date();
+        const until = new Date(temporaryInvisibilityUntil);
+        if (now < until) {
+          return { latitude: 0, longitude: 0, fuzzed: true, hidden: true };
+        }
+      }
 
       // 1. Check general sharing mode
       if (sharingMode === "approximate") {
