@@ -2,8 +2,8 @@
  * MapboxView.native.tsx  ← hanya dipakai di iOS / Android
  * Full @rnmapbox/maps integration dengan graceful fallback saat Mapbox belum dikonfigurasi.
  */
-import React, { useRef, useEffect, forwardRef, useImperativeHandle } from "react";
-import { View, StyleSheet, Animated, Easing, UIManager } from "react-native";
+import React, { useRef, useEffect, useState, forwardRef, useImperativeHandle } from "react";
+import { View, StyleSheet, Animated, Easing, UIManager, Text, Pressable } from "react-native";
 import Reanimated, { useSharedValue, withSpring, useAnimatedProps } from "react-native-reanimated";
 import MapView, { Marker as RNMarker, Polygon } from "react-native-maps";
 import Constants, { ExecutionEnvironment } from "expo-constants";
@@ -12,6 +12,8 @@ import { MapMarker } from "./MapMarker";
 import { FriendLocation } from "../services/mockService";
 import { useExplorationStore, TILE_SIZE } from "../store/useExplorationStore";
 import { useGamificationStore } from "../store/useGamificationStore";
+import { getClusteredNodes, ClusterNode } from "../utils/clustering";
+import * as Haptics from "expo-haptics";
 
 export interface MapboxViewRef {
   flyTo: (coords: { latitude: number; longitude: number }, zoom?: number) => void;
@@ -332,6 +334,133 @@ const SmoothFallbackMarker = React.memo(SmoothFallbackMarkerComponent, (prev, ne
   prev.friend.updatedAt === next.friend.updatedAt
 );
 
+interface ClusterMarkerProps {
+  friends: FriendLocation[];
+  isDark: boolean;
+}
+
+function ClusterMarkerComponent({ friends, isDark }: ClusterMarkerProps) {
+  const displayed = friends.slice(0, 3);
+  const count = friends.length;
+  const accentColor = "#2BE080"; // Glowing emerald neon for clusters
+
+  return (
+    <View style={clusterStyles.markerContainer}>
+      {/* Glowing Bubble */}
+      <View
+        style={[
+          clusterStyles.bubble,
+          {
+            borderColor: accentColor,
+            backgroundColor: isDark ? "rgba(18, 18, 22, 0.95)" : "rgba(255, 255, 255, 0.95)",
+            shadowColor: accentColor,
+          },
+        ]}
+      >
+        {/* Overlapping Emojis */}
+        <View style={clusterStyles.emojiWrapper}>
+          {displayed.map((friend, index) => (
+            <View
+              key={friend.uid}
+              style={[
+                clusterStyles.emojiContainer,
+                {
+                  marginLeft: index > 0 ? -12 : 0,
+                  zIndex: 5 - index,
+                },
+              ]}
+            >
+              <Text style={clusterStyles.emojiText}>{friend.avatarEmoji}</Text>
+            </View>
+          ))}
+        </View>
+
+          {/* Corner Count Badge */}
+          <View style={clusterStyles.badge}>
+            <Text style={clusterStyles.badgeText}>+{count}</Text>
+          </View>
+        </View>
+
+        {/* Bottom Name Tag */}
+        <View
+          style={[
+            clusterStyles.nameTag,
+            {
+              backgroundColor: isDark ? "rgba(18, 18, 22, 0.9)" : "rgba(255, 255, 255, 0.92)",
+              borderColor: isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)",
+            },
+          ]}
+        >
+          <Text style={[clusterStyles.nameTagText, { color: isDark ? "#ffffff" : "#121216" }]}>
+            {friends.slice(0, 2).map((f) => f.displayName).join(" & ")}
+            {count > 2 ? ` +${count - 2}` : ""}
+          </Text>
+        </View>
+      </View>
+    );
+  }
+
+const clusterStyles = StyleSheet.create({
+  markerContainer: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  bubble: {
+    height: 44,
+    paddingHorizontal: 12,
+    borderRadius: 22,
+    borderWidth: 2,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.8,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  emojiWrapper: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  emojiContainer: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  emojiText: {
+    fontSize: 18,
+  },
+  badge: {
+    position: "absolute",
+    top: -6,
+    right: -6,
+    backgroundColor: "#ff5b99",
+    paddingVertical: 1,
+    paddingHorizontal: 5,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.3)",
+  },
+  badgeText: {
+    color: "#ffffff",
+    fontSize: 8,
+    fontWeight: "900",
+  },
+  nameTag: {
+    paddingVertical: 2,
+    paddingHorizontal: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    marginTop: 4,
+  },
+  nameTagText: {
+    fontSize: 9,
+    fontWeight: "900",
+  },
+});
+
 function FallbackMapView({
   isDark,
   friends,
@@ -367,6 +496,14 @@ function FallbackMapView({
   const isExplorationActive = useExplorationStore((s) => s.isExplorationActive);
   const exploredFrequencies = useGamificationStore((s) => s.exploredFrequencies);
   const exploredTilesArray = useExplorationStore((s) => s.exploredTilesArray);
+
+  const [zoomLevel, setZoomLevel] = useState(14);
+
+  const handleRegionChangeComplete = (region: any) => {
+    // Estimate zoom level from longitudeDelta
+    const zoom = Math.round(Math.log2(360 / region.longitudeDelta));
+    setZoomLevel(zoom);
+  };
 
   const safeLat = typeof latitude === "number" && !isNaN(latitude) ? latitude : -6.2088;
   const safeLng = typeof longitude === "number" && !isNaN(longitude) ? longitude : 106.8456;
@@ -417,6 +554,7 @@ function FallbackMapView({
           onMapPress(e.nativeEvent.coordinate);
         }
       }}
+      onRegionChangeComplete={handleRegionChangeComplete}
     >
       {/* Exploration Visited Polygons Heatmap */}
       {isExplorationActive &&
@@ -481,11 +619,41 @@ function FallbackMapView({
         </RNMarker>
       )}
 
-      {/* Render friends with smooth spring physics */}
+      {/* Render friends & clusters dynamically */}
       {friends &&
-        friends.map((friend) => (
-          <SmoothFallbackMarker key={friend.uid} friend={friend} />
-        ))}
+        getClusteredNodes(friends, zoomLevel).map((node) => {
+          if (node.isCluster) {
+            return (
+              <RNMarker
+                key={node.id}
+                coordinate={{ latitude: node.latitude, longitude: node.longitude }}
+                anchor={{ x: 0.5, y: 0.5 }}
+                tracksViewChanges={false}
+                onPress={() => {
+                  Haptics.selectionAsync().catch(() => {});
+                  mapRef.current?.animateCamera(
+                    {
+                      center: {
+                        latitude: node.latitude,
+                        longitude: node.longitude,
+                      },
+                      zoom: Math.min(17, zoomLevel + 2),
+                      pitch: 45,
+                    },
+                    { duration: 800 }
+                  );
+                }}
+              >
+                <ClusterMarkerComponent friends={node.friends} isDark={isDark} />
+              </RNMarker>
+            );
+          } else {
+            const friend = node.friends[0];
+            return (
+              <SmoothFallbackMarker key={friend.uid} friend={friend} />
+            );
+          }
+        })}
     </MapView>
   );
 }
@@ -576,6 +744,7 @@ const MapboxViewComponent = forwardRef<MapboxViewRef, MapboxViewProps>(
   ) => {
     const cameraRef = useRef<any>(null);
     const fallbackMapRef = useRef<MapView>(null);
+    const [mapboxZoom, setMapboxZoom] = useState(14);
 
     useImperativeHandle(ref, () => ({
       flyTo: (coords, zoom = 15) => {
@@ -646,6 +815,9 @@ const MapboxViewComponent = forwardRef<MapboxViewRef, MapboxViewProps>(
             if (state.gestures?.isGestureActive && onMapPan) {
               onMapPan();
             }
+            if (state.properties?.zoomLevel !== undefined) {
+              setMapboxZoom(state.properties.zoomLevel);
+            }
           }}
         >
           <Camera
@@ -682,11 +854,35 @@ const MapboxViewComponent = forwardRef<MapboxViewRef, MapboxViewProps>(
             </MarkerView>
           )}
 
-          {/* Render markers of friends in real Mapbox native */}
+          {/* Render markers of friends & clusters dynamically in Mapbox native */}
           {friends &&
-            friends.map((friend) => (
-              <AnimatedFriendMarker key={friend.uid} friend={friend} />
-            ))}
+            getClusteredNodes(friends, mapboxZoom).map((node) => {
+              if (node.isCluster) {
+                return (
+                  <MarkerView
+                    key={node.id}
+                    id={node.id}
+                    coordinate={[node.longitude, node.latitude]}
+                    anchor={{ x: 0.5, y: 0.5 }}
+                  >
+                    <Pressable
+                      onPress={() => {
+                        Haptics.selectionAsync().catch(() => {});
+                        cameraRef.current?.flyTo([node.longitude, node.latitude], 800);
+                        cameraRef.current?.zoomTo(Math.min(17, mapboxZoom + 2), 800);
+                      }}
+                    >
+                      <ClusterMarkerComponent friends={node.friends} isDark={isDark} />
+                    </Pressable>
+                  </MarkerView>
+                );
+              } else {
+                const friend = node.friends[0];
+                return (
+                  <AnimatedFriendMarker key={friend.uid} friend={friend} />
+                );
+              }
+            })}
 
           {children}
         </NativeMapView>

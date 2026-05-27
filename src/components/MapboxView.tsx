@@ -17,6 +17,8 @@ import { MapMarker } from "./MapMarker";
 import { FriendLocation } from "../services/mockService";
 import { useExplorationStore, TILE_SIZE } from "../store/useExplorationStore";
 import { useGamificationStore } from "../store/useGamificationStore";
+import { getClusteredNodes, ClusterNode } from "../utils/clustering";
+import * as Haptics from "expo-haptics";
 
 
 export interface MapboxViewRef {
@@ -151,6 +153,79 @@ function createMarkerHtml(
   `;
 }
 
+// Custom HTML for Leaflet cluster markers displaying Zenly-style overlapping friend emojis
+function createClusterMarkerHtml(friends: FriendLocation[]): string {
+  const friendCount = friends.length;
+  const displayedEmojis = friends.slice(0, 3).map((f) => f.avatarEmoji);
+  const accentColor = "#2BE080"; // Glowing emerald neon border for clusters
+  const glowShadow = `0 0 15px ${accentColor}`;
+
+  // Overlap stacking style with incremental margin offsets
+  const emojiBlocks = displayedEmojis
+    .map((emoji, index) => {
+      const offset = index * -10; // overlap 10px
+      return `<span style="font-size: 20px; margin-left: ${index > 0 ? `${offset}px` : "0px"}; z-index: ${3 - index}; position: relative; text-shadow: 0 2px 4px rgba(0,0,0,0.5);">${emoji}</span>`;
+    })
+    .join("");
+
+  return `
+    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; user-select: none;">
+      <!-- Glowing avatar cluster container -->
+      <div style="
+        height: 44px;
+        padding: 0 14px;
+        border-radius: 22px;
+        background: rgba(18, 18, 22, 0.95);
+        border: 2px solid ${accentColor};
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: ${glowShadow};
+        position: relative;
+      ">
+        <!-- Stack of emojis -->
+        <div style="display: flex; align-items: center; justify-content: center;">
+          ${emojiBlocks}
+        </div>
+        
+        <!-- Corner Count Badge -->
+        <div style="
+          position: absolute;
+          top: -6px;
+          right: -6px;
+          background: #ff5b99;
+          border: 1px solid rgba(255,255,255,0.2);
+          padding: 1px 5px;
+          border-radius: 8px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+        ">
+          <span style="font-size: 8px; font-weight: 900; color: #ffffff; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+            +${friendCount}
+          </span>
+        </div>
+      </div>
+      
+      <!-- Summary name tag -->
+      <div style="
+        background: rgba(18, 18, 22, 0.9);
+        border: 1px solid rgba(255,255,255,0.1);
+        padding: 2px 8px;
+        border-radius: 8px;
+        margin-top: 4px;
+        white-space: nowrap;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+      ">
+        <span style="font-size: 9px; font-weight: 900; color: #ffffff; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; letter-spacing: 0.5px;">
+          ${friends.slice(0, 2).map((f) => f.displayName).join(" & ")}${friendCount > 2 ? ` +${friendCount - 2}` : ""}
+        </span>
+      </div>
+    </div>
+  `;
+}
+
 const MapboxViewComponent = forwardRef<MapboxViewRef, MapboxViewProps>(
   (
     {
@@ -173,6 +248,7 @@ const MapboxViewComponent = forwardRef<MapboxViewRef, MapboxViewProps>(
     ref
   ) => {
     const [leafletLoaded, setLeafletLoaded] = useState(false);
+    const [zoomLevel, setZoomLevel] = useState(14);
     const mapRef = useRef<any>(null);
     const mapDivRef = useRef<HTMLDivElement>(null);
     const markersRef = useRef<{ [key: string]: any }>({});
@@ -312,6 +388,11 @@ const MapboxViewComponent = forwardRef<MapboxViewRef, MapboxViewProps>(
         }
       });
 
+      // Synchronize zoom level reactively
+      map.on("zoomend", () => {
+        setZoomLevel(map.getZoom());
+      });
+
       return () => {
         if (mapRef.current) {
           mapRef.current.remove();
@@ -381,37 +462,54 @@ const MapboxViewComponent = forwardRef<MapboxViewRef, MapboxViewProps>(
         }).addTo(mapRef.current);
       }
 
-      // 4b. Friend Markers
+      // 4b. Friend Markers & Clusters
       if (currentFriends) {
-        currentFriends.forEach((friend) => {
-          const friendKey = `friend-${friend.uid}`;
-          activeKeys.add(friendKey);
+        const clusteredNodes = getClusteredNodes(currentFriends, zoomLevel);
 
-          const fHtml = createMarkerHtml(
-            friend.avatarEmoji,
-            friend.displayName,
-            friend.batteryLevel,
-            friend.isCharging,
-            friend.ghostMode,
-            false,
-            friend.activity,
-            friend.geofence
-          );
+        clusteredNodes.forEach((node) => {
+          const nodeKey = node.isCluster ? `cluster-${node.id}` : `friend-${node.id}`;
+          activeKeys.add(nodeKey);
 
-          if (currentMarkers[friendKey]) {
-            currentMarkers[friendKey].setLatLng([friend.latitude, friend.longitude]);
+          const fHtml = node.isCluster
+            ? createClusterMarkerHtml(node.friends)
+            : createMarkerHtml(
+                node.friends[0].avatarEmoji,
+                node.friends[0].displayName,
+                node.friends[0].batteryLevel,
+                node.friends[0].isCharging,
+                node.friends[0].ghostMode,
+                false,
+                node.friends[0].activity,
+                node.friends[0].geofence
+              );
+
+          const iconSize: [number, number] = node.isCluster ? [100, 80] : [60, 80];
+          const iconAnchor: [number, number] = node.isCluster ? [50, 60] : [30, 60];
+
+          if (currentMarkers[nodeKey]) {
+            currentMarkers[nodeKey].setLatLng([node.latitude, node.longitude]);
             // Only rebuild icon HTML if it actually changed
-            if (htmlCache[friendKey] !== fHtml) {
-              htmlCache[friendKey] = fHtml;
-              currentMarkers[friendKey].setIcon(
-                L.divIcon({ html: fHtml, className: "custom-leaflet-marker", iconSize: [60, 80], iconAnchor: [30, 60] })
+            if (htmlCache[nodeKey] !== fHtml) {
+              htmlCache[nodeKey] = fHtml;
+              currentMarkers[nodeKey].setIcon(
+                L.divIcon({ html: fHtml, className: "custom-leaflet-marker", iconSize, iconAnchor })
               );
             }
           } else {
-            htmlCache[friendKey] = fHtml;
-            currentMarkers[friendKey] = L.marker([friend.latitude, friend.longitude], {
-              icon: L.divIcon({ html: fHtml, className: "custom-leaflet-marker", iconSize: [60, 80], iconAnchor: [30, 60] }),
+            htmlCache[nodeKey] = fHtml;
+            const newMarker = L.marker([node.latitude, node.longitude], {
+              icon: L.divIcon({ html: fHtml, className: "custom-leaflet-marker", iconSize, iconAnchor }),
             }).addTo(mapRef.current);
+
+            // Bind click handler for cluster zoom in expansion
+            if (node.isCluster) {
+              newMarker.on("click", () => {
+                Haptics.selectionAsync().catch(() => {});
+                mapRef.current.setView([node.latitude, node.longitude], Math.min(17, zoomLevel + 2), { animate: true });
+              });
+            }
+
+            currentMarkers[nodeKey] = newMarker;
           }
         });
       }
@@ -424,7 +522,7 @@ const MapboxViewComponent = forwardRef<MapboxViewRef, MapboxViewProps>(
           delete htmlCache[key];
         }
       });
-    }, [leafletLoaded, latitude, longitude, friends, userProfile, userBatteryLevel, userIsCharging, userGhostMode]);
+    }, [leafletLoaded, latitude, longitude, friends, userProfile, userBatteryLevel, userIsCharging, userGhostMode, zoomLevel]);
 
     // ─── EFFECT #5: EXPLORATION MODE TILES & FOG OVERLAYS ──────────────────
     const isExplorationActive = useExplorationStore((s) => s.isExplorationActive);
