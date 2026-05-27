@@ -7,6 +7,8 @@ import { useGamificationStore } from "./useGamificationStore";
 import { useLocationStore } from "./useLocationStore";
 import { useGeofenceStore } from "./useGeofenceStore";
 import { achievementService } from "../services/achievementService";
+import { useNetworkStore } from "./useNetworkStore";
+import { useSyncQueueStore } from "./useSyncQueueStore";
 
 // Bounding tile degree size (~30m x 30m grid)
 export const TILE_SIZE = 0.0003;
@@ -43,6 +45,12 @@ async function syncTilesToFirestoreThrottled(userId: string, tiles: string[]) {
     syncTimeout = null;
     pendingTilesToWrite = [];
 
+    const isOnline = useNetworkStore.getState().isOnline;
+    if (!isOnline) {
+      useSyncQueueStore.getState().enqueueSyncItem("TILES", userId, listToSend).catch(() => {});
+      return;
+    }
+
     if (!isFirebaseConfigured || !db) return;
     try {
       const docRef = doc(db, "explored_tiles", userId);
@@ -53,9 +61,8 @@ async function syncTilesToFirestoreThrottled(userId: string, tiles: string[]) {
       }, { merge: true });
       console.log(`📡 Synced ${listToSend.length} explored tiles successfully to Firestore.`);
     } catch (e) {
-      console.error("⚠️ Failed to sync explored tiles to Firestore:", e);
-      // Re-queue on failure so it retries on next tick
-      pendingTilesToWrite = [...new Set([...pendingTilesToWrite, ...listToSend])];
+      console.error("⚠️ Failed to sync explored tiles to Firestore, enqueuing:", e);
+      useSyncQueueStore.getState().enqueueSyncItem("TILES", userId, listToSend).catch(() => {});
     }
   }, 3000);
 }

@@ -57,6 +57,8 @@ import { useExplorationStore } from "../../src/store/useExplorationStore";
 import { ExplorationStatsCard } from "../../src/components/ExplorationStatsCard";
 import { useGamificationStore } from "../../src/store/useGamificationStore";
 import { ExplorationDashboard } from "../../src/components/ExplorationDashboard";
+import { useNetworkStore } from "../../src/store/useNetworkStore";
+import { useSyncQueueStore } from "../../src/store/useSyncQueueStore";
 
 
 type GhostModeType = "precise" | "blurry" | "frozen";
@@ -93,6 +95,9 @@ export default function HomeMapScreen() {
   const [isSearchFocused, setIsSearchFocused] = useState(false);
   const [showGhostPicker, setShowGhostPicker] = useState(false);
   const [followUser, setFollowUser] = useState(true);
+
+  // Offline/Sync Banner Animation
+  const bannerAnim = useRef(new Animated.Value(0)).current;
 
   // Saved Places & Notification Center panel states
   const [showSavedPlaces, setShowSavedPlaces] = useState(false);
@@ -164,6 +169,39 @@ export default function HomeMapScreen() {
   const listenToFriends = useLocationStore((s) => s.listenToFriends);
 
   const { friends: activeFriends, initializeFriendListener } = useFriendStore();
+
+  // Network and Sync Queue Stores
+  const { isOnline, initializeNetworkMonitoring } = useNetworkStore();
+  const { queue, status: syncStatus, hydrateQueue, flushQueue } = useSyncQueueStore();
+
+  // ── Network State & Sync Queue Listeners ──
+  useEffect(() => {
+    const unsubNetwork = initializeNetworkMonitoring();
+    return () => unsubNetwork();
+  }, []);
+
+  useEffect(() => {
+    if (userProfile?.uid) {
+      hydrateQueue(userProfile.uid);
+    }
+  }, [userProfile?.uid]);
+
+  useEffect(() => {
+    if (isOnline && userProfile?.uid && queue.length > 0) {
+      flushQueue();
+    }
+  }, [isOnline, userProfile?.uid, queue.length]);
+
+  // ── Offline Banner Animation Controller ──
+  const showBanner = !isOnline || syncStatus === "syncing" || syncStatus === "synced";
+  useEffect(() => {
+    Animated.spring(bannerAnim, {
+      toValue: showBanner ? 1 : 0,
+      useNativeDriver: true,
+      tension: 60,
+      friction: 12,
+    }).start();
+  }, [showBanner]);
 
   // Dengarkan relasi pertemanan secara real-time
   useEffect(() => {
@@ -527,6 +565,60 @@ export default function HomeMapScreen() {
   return (
     <View style={styles.container}>
       <StatusBar barStyle={isDark ? "light-content" : "dark-content"} translucent backgroundColor="transparent" />
+
+      {/* ── Offline & Sync Status Banner HUD ── */}
+      <Animated.View
+        pointerEvents={showBanner ? "auto" : "none"}
+        style={[
+          styles.offlineBannerContainer,
+          {
+            opacity: bannerAnim,
+            transform: [
+              {
+                translateY: bannerAnim.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [-100, 0],
+                }),
+              },
+            ],
+          },
+        ]}
+      >
+        <BlurView
+          intensity={85}
+          tint={isDark ? "dark" : "light"}
+          style={[
+            styles.offlineBannerBlur,
+            {
+              borderColor: !isOnline
+                ? "rgba(255, 165, 0, 0.4)"
+                : syncStatus === "syncing"
+                ? "rgba(0, 206, 209, 0.4)"
+                : "rgba(46, 213, 115, 0.4)",
+            },
+          ]}
+        >
+          <View style={styles.offlineBannerContent}>
+            <View
+              style={[
+                styles.offlineIndicatorDot,
+                {
+                  backgroundColor: !isOnline
+                    ? "#FFA500"
+                    : syncStatus === "syncing"
+                    ? "#00CED1"
+                    : "#2ED573",
+                },
+              ]}
+            />
+            <Text style={[styles.offlineBannerText, { color: theme.text }]}>
+              {!isOnline && "⚠️ Mode Luring Aktif — Bekerja Offline"}
+              {isOnline && syncStatus === "syncing" && `📡 Menyinkronkan data tertunda... (${queue.length})`}
+              {isOnline && syncStatus === "synced" && "✅ Semua data telah tersinkronisasi!"}
+            </Text>
+          </View>
+        </BlurView>
+      </Animated.View>
 
       {/* ── Full-screen Map ── */}
       <MapboxView
@@ -1066,6 +1158,39 @@ export default function HomeMapScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  offlineBannerContainer: {
+    position: "absolute",
+    top: Platform.OS === "ios" ? 55 : 40,
+    left: 20,
+    right: 20,
+    zIndex: 9999,
+    alignItems: "center",
+  },
+  offlineBannerBlur: {
+    borderRadius: 24,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderWidth: 1,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
+    elevation: 5,
+  },
+  offlineBannerContent: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  offlineIndicatorDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 10,
+  },
+  offlineBannerText: {
+    fontSize: 13,
+    fontWeight: "600",
   },
 
   // ── Top Bar

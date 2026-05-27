@@ -3,6 +3,8 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Haptics from "expo-haptics";
 import { doc, setDoc, onSnapshot } from "firebase/firestore";
 import { db, auth, isFirebaseConfigured } from "../config/firebase";
+import { useNetworkStore } from "./useNetworkStore";
+import { useSyncQueueStore } from "./useSyncQueueStore";
 
 export interface LeaderboardEntry {
   uid: string;
@@ -39,21 +41,33 @@ async function syncGamificationToFirestore(userId: string, state: any) {
 
   gamificationTimeout = setTimeout(async () => {
     gamificationTimeout = null;
+
+    const isOnline = useNetworkStore.getState().isOnline;
+    const statsPayload = {
+      unlockedBadges: state.unlockedBadges,
+      streakCount: state.streakCount,
+      totalDistance: state.totalDistance,
+      exploredFrequencies: state.exploredFrequencies,
+      dailyExploredCount: state.dailyExploredCount,
+    };
+
+    if (!isOnline) {
+      useSyncQueueStore.getState().enqueueSyncItem("STATS", userId, statsPayload).catch(() => {});
+      return;
+    }
+
     if (!isFirebaseConfigured || !db) return;
     try {
       const docRef = doc(db, "exploration_stats", userId);
       await setDoc(docRef, {
         userId,
-        unlockedBadges: state.unlockedBadges,
-        streakCount: state.streakCount,
-        totalDistance: state.totalDistance,
-        exploredFrequencies: state.exploredFrequencies,
-        dailyExploredCount: state.dailyExploredCount,
+        ...statsPayload,
         updatedAt: new Date().toISOString(),
       }, { merge: true });
       console.log("📡 Synced exploration gamification statistics to Firestore.");
     } catch (e) {
-      console.error("Failed to sync gamification to Firestore:", e);
+      console.error("Failed to sync gamification to Firestore, enqueuing:", e);
+      useSyncQueueStore.getState().enqueueSyncItem("STATS", userId, statsPayload).catch(() => {});
     }
   }, 4000);
 }

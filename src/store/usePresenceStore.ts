@@ -2,6 +2,9 @@ import { create } from "zustand";
 import { presenceService, UserPresence } from "../services/presenceService";
 import { doc, setDoc, onSnapshot, collection, query, where } from "firebase/firestore";
 import { db, auth, isFirebaseConfigured } from "../config/firebase";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useNetworkStore } from "./useNetworkStore";
+import { useSyncQueueStore } from "./useSyncQueueStore";
 
 export interface FriendActivityState {
   uid: string;
@@ -38,7 +41,18 @@ export const usePresenceStore = create<PresenceStoreState>((set, get) => {
       set({ selfPresence: status });
       const currentUser = auth?.currentUser;
       if (currentUser && isFirebaseConfigured) {
-        await presenceService.setUserPresence(currentUser.uid, status);
+        const isOnline = useNetworkStore.getState().isOnline;
+        if (!isOnline) {
+          useSyncQueueStore.getState().enqueueSyncItem("PRESENCE", currentUser.uid, status).catch(() => {});
+          return;
+        }
+
+        try {
+          await presenceService.setUserPresence(currentUser.uid, status);
+        } catch (err) {
+          console.error("Gagal update presence, enqueuing:", err);
+          useSyncQueueStore.getState().enqueueSyncItem("PRESENCE", currentUser.uid, status).catch(() => {});
+        }
       }
     },
 
@@ -46,6 +60,12 @@ export const usePresenceStore = create<PresenceStoreState>((set, get) => {
       set({ selfActivity: activity });
       const currentUser = auth?.currentUser;
       if (currentUser && isFirebaseConfigured && db) {
+        const isOnline = useNetworkStore.getState().isOnline;
+        if (!isOnline) {
+          useSyncQueueStore.getState().enqueueSyncItem("ACTIVITY", currentUser.uid, activity).catch(() => {});
+          return;
+        }
+
         try {
           const activityRef = doc(db, "activities", currentUser.uid);
           await setDoc(
@@ -58,12 +78,27 @@ export const usePresenceStore = create<PresenceStoreState>((set, get) => {
             { merge: true }
           );
         } catch (err) {
-          console.error("Gagal sinkronisasi activity ke Firestore:", err);
+          console.error("Gagal sinkronisasi activity ke Firestore, enqueuing:", err);
+          useSyncQueueStore.getState().enqueueSyncItem("ACTIVITY", currentUser.uid, activity).catch(() => {});
         }
       }
     },
 
     listenToFriendsPresenceAndActivities: (friendUids) => {
+      const currentUser = auth?.currentUser;
+
+      // Load cached presences instantly
+      if (currentUser) {
+        AsyncStorage.getItem(`wander_cached_presences_${currentUser.uid}`)
+          .then((cached) => {
+            if (cached && Object.keys(get().friendPresences).length === 0) {
+              set({ friendPresences: JSON.parse(cached) });
+              console.log("📦 Loaded cached friend presences from AsyncStorage.");
+            }
+          })
+          .catch(() => {});
+      }
+
       // Clean up previous listeners
       activePresenceListeners.forEach((unsub) => unsub());
       activePresenceListeners = [];
@@ -142,6 +177,9 @@ export const usePresenceStore = create<PresenceStoreState>((set, get) => {
         });
 
         set({ friendPresences: currentFriendPresences, isLoading: false });
+        if (currentUser) {
+          AsyncStorage.setItem(`wander_cached_presences_${currentUser.uid}`, JSON.stringify(currentFriendPresences)).catch(() => {});
+        }
       });
 
       activePresenceListeners.push(unsubPresence);
@@ -177,6 +215,9 @@ export const usePresenceStore = create<PresenceStoreState>((set, get) => {
         });
 
         set({ friendPresences: currentFriendPresences });
+        if (currentUser) {
+          AsyncStorage.setItem(`wander_cached_presences_${currentUser.uid}`, JSON.stringify(currentFriendPresences)).catch(() => {});
+        }
       });
 
       activePresenceListeners.push(unsubActivities);

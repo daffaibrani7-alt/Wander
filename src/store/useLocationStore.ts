@@ -8,6 +8,9 @@ import { MockService, FriendLocation } from "../services/mockService";
 import { useFriendStore } from "./useFriendStore";
 import { useGeofenceStore } from "./useGeofenceStore";
 import * as Haptics from "expo-haptics";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useNetworkStore } from "./useNetworkStore";
+import { useSyncQueueStore } from "./useSyncQueueStore";
 
 interface LocationState {
   location: Location.LocationObjectCoords | null;
@@ -442,38 +445,64 @@ export const useLocationStore = create<LocationState>((set, get) => {
         }
       }
 
+      const isOnline = useNetworkStore.getState().isOnline;
+      const syncQueueStore = useSyncQueueStore.getState();
+      const nowStr = new Date().toISOString();
+      const activity = analyzeActivity(coords.speed ?? null, isCharging, nowStr, batteryLevel);
+      const geofence = checkGeofence(finalCoords.latitude, finalCoords.longitude, currentUser.uid);
+
+      const locationPayload = {
+        uid: currentUser.uid,
+        latitude: finalCoords.latitude,
+        longitude: finalCoords.longitude,
+        heading: coords.heading ?? null,
+        speed: coords.speed ?? null,
+        batteryLevel,
+        isCharging,
+        ghostMode,
+        updatedAt: nowStr,
+        activity,
+        geofence,
+      };
+
+      if (!isOnline) {
+        syncQueueStore.enqueueSyncItem("LOCATION", currentUser.uid, locationPayload).catch(() => {});
+        return;
+      }
+
       try {
         const locationDocRef = doc(db, "locations", currentUser.uid);
-        const nowStr = new Date().toISOString();
-        const activity = analyzeActivity(coords.speed ?? null, isCharging, nowStr, batteryLevel);
-        const geofence = checkGeofence(finalCoords.latitude, finalCoords.longitude, currentUser.uid);
-
         await setDoc(
           locationDocRef,
           {
-            uid: currentUser.uid,
-            latitude: finalCoords.latitude,
-            longitude: finalCoords.longitude,
-            heading: coords.heading ?? null,
-            speed: coords.speed ?? null,
-            batteryLevel,
-            isCharging,
-            ghostMode,
+            ...locationPayload,
             lastSeen: serverTimestamp(),
-            updatedAt: nowStr,
-            activity,
-            geofence,
           },
           { merge: true }
         );
       } catch (err) {
-        console.error("Error sinkronisasi lokasi ke Firestore:", err);
+        console.error("Error sinkronisasi lokasi ke Firestore, enqueuing:", err);
+        syncQueueStore.enqueueSyncItem("LOCATION", currentUser.uid, locationPayload).catch(() => {});
       }
     },
 
     listenToFriends: () => {
       const myLat = get().location?.latitude;
       const myLng = get().location?.longitude;
+      const currentUser = auth?.currentUser;
+
+      // Instantly load cached friends on start if available
+      if (currentUser) {
+        AsyncStorage.getItem(`wander_cached_friends_${currentUser.uid}`)
+          .then((cached) => {
+            if (cached && get().friends.length === 0) {
+              const parsed = JSON.parse(cached) as FriendLocation[];
+              set({ friends: parsed });
+              console.log(`📦 Loaded ${parsed.length} friends from local cache.`);
+            }
+          })
+          .catch((err) => console.log("Failed to load cached friends:", err));
+      }
 
       if (!isFirebaseConfigured || !db) {
         // Offline / Simulation mode
@@ -576,7 +605,12 @@ export const useLocationStore = create<LocationState>((set, get) => {
           (m) => !realFriends.some((r) => r.uid === m.uid)
         );
 
-        set({ friends: [...realFriends, ...mockFriends] });
+        const mergedFriends = [...realFriends, ...mockFriends];
+        set({ friends: mergedFriends });
+
+        if (currentUser) {
+          AsyncStorage.setItem(`wander_cached_friends_${currentUser.uid}`, JSON.stringify(mergedFriends)).catch(() => {});
+        }
       };
 
       const setupQueryListener = (friendUids: string[]) => {
