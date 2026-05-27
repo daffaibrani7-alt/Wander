@@ -1,0 +1,27 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    
+    // Helper: Checks if the user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Helper: Checks if the user is accessing their own personal storage folder
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // ─── USER AVATAR PICTURES ────────────────────────────────────────────────
+    match /avatars/{userId} {
+      // Avatars can be read by any authenticated member of the platform
+      allow read: if isAuthenticated();
+      
+      // Avatars can be uploaded or updated only by the authenticated owner
+      allow write: if isOwner(userId)
+                   && request.resource.size < 5 * 1024 * 1024 // Cap size at 5MB
+                   && request.resource.contentType.matches('image/.*'); // Restrict to image uploads only
+    }
+  }
+}

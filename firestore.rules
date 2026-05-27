@@ -1,0 +1,77 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper: Checks if the request is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Helper: Checks if the user is access-locked to their own document
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Helper: Validates user relation inside mutual friends subcollections
+    function isConfirmedFriend(userId, friendId) {
+      return isAuthenticated() && 
+        exists(/databases/$(database)/documents/users/$(userId)/friends/$(friendId)) &&
+        get(/databases/$(database)/documents/users/$(userId)/friends/$(friendId)).data.status == 'accepted';
+    }
+
+    // ─── USERS COLLECTION ────────────────────────────────────────────────────
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow write: if isOwner(userId);
+      
+      // Friends Subcollection
+      match /friends/{friendId} {
+        allow read: if isOwner(userId) || isOwner(friendId);
+        allow write: if isOwner(userId);
+      }
+    }
+
+    // ─── USER PROGRESSION & ACHIEVEMENTS ─────────────────────────────────────
+    match /user_progress/{userId} {
+      allow read: if isAuthenticated();
+      allow write: if isOwner(userId);
+    }
+
+    // ─── EXPLORATION GRID TILE STATS ─────────────────────────────────────────
+    match /exploration_stats/{userId} {
+      allow read: if isAuthenticated();
+      allow write: if isOwner(userId);
+    }
+
+    match /explored_tiles/{userId} {
+      allow read: if isAuthenticated();
+      allow write: if isOwner(userId);
+    }
+
+    // ─── REALTIME GPS LOCATIONS ──────────────────────────────────────────────
+    match /locations/{userId} {
+      // User can write their own coordinates.
+      // Friends can read only if they are mutual accepted friends and not ghosted/blocked
+      allow write: if isOwner(userId);
+      allow read: if isOwner(userId) || isConfirmedFriend(request.auth.uid, userId);
+    }
+
+    // ─── REALTIME PRESENCE STATES ────────────────────────────────────────────
+    match /presence/{userId} {
+      allow write: if isOwner(userId);
+      allow read: if isAuthenticated();
+    }
+
+    match /activities/{userId} {
+      allow write: if isOwner(userId);
+      allow read: if isAuthenticated();
+    }
+
+    // ─── DYNAMIC GEOPENCE PLACES ─────────────────────────────────────────────
+    match /places/{placeId} {
+      allow read, write: if isAuthenticated() && request.auth.uid == resource.data.userId;
+      allow create: if isAuthenticated() && request.auth.uid == request.resource.data.userId;
+    }
+  }
+}

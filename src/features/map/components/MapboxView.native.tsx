@@ -566,16 +566,54 @@ function FallbackMapView({
   const isReplaying = useExplorationStore((s) => s.isReplaying);
   const replayCoordinates = useExplorationStore((s) => s.replayCoordinates);
 
+  const safeLat = typeof latitude === "number" && !isNaN(latitude) ? latitude : -6.2088;
+  const safeLng = typeof longitude === "number" && !isNaN(longitude) ? longitude : 106.8456;
+
   const [zoomLevel, setZoomLevel] = useState(14);
+  const [currentRegion, setCurrentRegion] = useState<any>({
+    latitude: safeLat,
+    longitude: safeLng,
+    latitudeDelta: 0.05,
+    longitudeDelta: 0.05,
+  });
 
   const handleRegionChangeComplete = (region: any) => {
     // Estimate zoom level from longitudeDelta
     const zoom = Math.round(Math.log2(360 / region.longitudeDelta));
     setZoomLevel(zoom);
+    setCurrentRegion(region);
   };
 
-  const safeLat = typeof latitude === "number" && !isNaN(latitude) ? latitude : -6.2088;
-  const safeLng = typeof longitude === "number" && !isNaN(longitude) ? longitude : 106.8456;
+  // Viewport virtualization: filter tiles visible in the current region
+  const visibleTileKeys = React.useMemo(() => {
+    const keys = Object.keys(exploredFrequencies).length > 0 ? Object.keys(exploredFrequencies) : exploredTilesArray;
+    if (!currentRegion) return keys;
+
+    const { latitude: rLat, longitude: rLng, latitudeDelta, longitudeDelta } = currentRegion;
+    const padFactor = 1.25; // Pad visible area by 25% for a seamless pan margin
+    const minLat = rLat - (latitudeDelta / 2) * padFactor;
+    const maxLat = rLat + (latitudeDelta / 2) * padFactor;
+    const minLng = rLng - (longitudeDelta / 2) * padFactor;
+    const maxLng = rLng + (longitudeDelta / 2) * padFactor;
+
+    return keys.filter(tileKey => {
+      const [latIdxStr, lngIdxStr] = tileKey.split("_");
+      const latIdx = parseInt(latIdxStr, 10);
+      const lngIdx = parseInt(lngIdxStr, 10);
+
+      const tileMinLat = latIdx * TILE_SIZE;
+      const tileMinLng = lngIdx * TILE_SIZE;
+      const tileMaxLat = (latIdx + 1) * TILE_SIZE;
+      const tileMaxLng = (lngIdx + 1) * TILE_SIZE;
+
+      return (
+        tileMaxLat >= minLat &&
+        tileMinLat <= maxLat &&
+        tileMaxLng >= minLng &&
+        tileMinLng <= maxLng
+      );
+    });
+  }, [exploredFrequencies, exploredTilesArray, currentRegion]);
 
   // Smooth Apple Maps style follow camera in fallback map!
   useEffect(() => {
@@ -627,7 +665,7 @@ function FallbackMapView({
     >
       {/* Exploration Visited Polygons Heatmap */}
       {isExplorationActive &&
-        (Object.keys(exploredFrequencies).length > 0 ? Object.keys(exploredFrequencies) : exploredTilesArray).map((tileKey) => {
+        visibleTileKeys.map((tileKey) => {
           const [latIdxStr, lngIdxStr] = tileKey.split("_");
           const latIdx = parseInt(latIdxStr, 10);
           const lngIdx = parseInt(lngIdxStr, 10);
