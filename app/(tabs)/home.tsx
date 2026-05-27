@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import {
   View,
   Text,
@@ -25,6 +25,11 @@ import {
   MapPin,
   Shield,
   Crosshair,
+  Bell,
+  Lock,
+  Smartphone,
+  Compass,
+  Award,
 } from "lucide-react-native";
 import { COLORS } from "../../src/theme/colors";
 import { GlassCard } from "../../src/components/GlassCard";
@@ -39,7 +44,20 @@ import { useGeofenceStore } from "../../src/store/useGeofenceStore";
 import { usePresenceStore } from "../../src/store/usePresenceStore";
 import { useActivityDetection } from "../../src/hooks/useActivityDetection";
 import { DynamicIslandAlert } from "../../src/components/DynamicIslandAlert";
+import { BlurView } from "expo-blur";
 import { FriendCarousel } from "../../src/components/FriendCarousel";
+import { ImageCache } from "../../src/utils/imageCache";
+import { SavedPlacesManager } from "../../src/components/SavedPlacesManager";
+import { NotificationCenter } from "../../src/components/NotificationCenter";
+import { LiveActivityCard } from "../../src/components/LiveActivityCard";
+import { useLiveActivityStore } from "../../src/store/useLiveActivityStore";
+import { HomeScreenWidgetsSimulator } from "../../src/components/HomeScreenWidgetsSimulator";
+import { useWidgetStore } from "../../src/store/useWidgetStore";
+import { useExplorationStore } from "../../src/store/useExplorationStore";
+import { ExplorationStatsCard } from "../../src/components/ExplorationStatsCard";
+import { useGamificationStore } from "../../src/store/useGamificationStore";
+import { ExplorationDashboard } from "../../src/components/ExplorationDashboard";
+
 
 type GhostModeType = "precise" | "blurry" | "frozen";
 
@@ -48,6 +66,20 @@ const GHOST_MODES: { mode: GhostModeType; label: string; color: string; icon: st
   { mode: "blurry", label: "Samar", color: COLORS.pink, icon: "🌫️" },
   { mode: "frozen", label: "Beku", color: COLORS.purple, icon: "❄️" },
 ];
+
+function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371; // Earth radius in km
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
 
 export default function HomeMapScreen() {
   const isDark = useThemeStore((s) => s.isDark);
@@ -62,6 +94,49 @@ export default function HomeMapScreen() {
   const [showGhostPicker, setShowGhostPicker] = useState(false);
   const [followUser, setFollowUser] = useState(true);
 
+  // Saved Places & Notification Center panel states
+  const [showSavedPlaces, setShowSavedPlaces] = useState(false);
+  const [showNotifCenter, setShowNotifCenter] = useState(false);
+  const [isMapPickMode, setMapPickMode] = useState(false);
+  const [pickedCoords, setPickedCoords] = useState<{ latitude: number; longitude: number } | null>(null);
+
+  const notificationsFeed = useGeofenceStore((s) => s.notificationsFeed);
+  const unreadCount = useMemo(() => notificationsFeed.filter((n) => !n.read).length, [notificationsFeed]);
+
+  // Live Activity Zustand Store
+  const {
+    activeActivity,
+    isLockScreenSimulated,
+    toggleLockScreenSimulation,
+    triggerDynamicIsland,
+    startLiveActivity,
+    updateLiveActivity,
+    stopLiveActivity,
+  } = useLiveActivityStore();
+
+  // Widget Zustand Store
+  const {
+    isWidgetSimulatorActive,
+    widgetTheme,
+    setWidgetSimulatorActive,
+    toggleWidgetSimulator,
+  } = useWidgetStore();
+
+  // Exploration Zustand Store
+  const {
+    isExplorationActive,
+    toggleExplorationMode,
+    trackPosition,
+    initializeExplorationListener,
+  } = useExplorationStore();
+
+  // Gamification Zustand Store
+  const {
+    isDashboardActive,
+    toggleDashboard,
+    initializeGamificationStore,
+  } = useGamificationStore();
+
   // Dynamic Island Alert State
   const [islandAlert, setIslandAlert] = useState({
     visible: false,
@@ -70,24 +145,23 @@ export default function HomeMapScreen() {
     emoji: "✨",
   });
 
-  // Self Geofence regions
-  const { regions, radiusConfig, initializeNotifications } = useGeofenceStore();
+  // Self Geofence regions — granular selector
+  const regions = useGeofenceStore((s) => s.regions);
+  const initializeNotifications = useGeofenceStore((s) => s.initializeNotifications);
 
   // Automatic Self Activity Detection
   const selfActivity = useActivityDetection();
 
-  // Live Location Store
-  const {
-    location,
-    friends: allFriendsLocations,
-    ghostMode,
-    batteryLevel,
-    isCharging,
-    startTracking,
-    stopTracking,
-    setGhostMode,
-    listenToFriends,
-  } = useLocationStore();
+  // Live Location Store — granular selectors prevent re-renders on unrelated state changes
+  const location = useLocationStore((s) => s.location);
+  const allFriendsLocations = useLocationStore((s) => s.friends);
+  const ghostMode = useLocationStore((s) => s.ghostMode);
+  const batteryLevel = useLocationStore((s) => s.batteryLevel);
+  const isCharging = useLocationStore((s) => s.isCharging);
+  const startTracking = useLocationStore((s) => s.startTracking);
+  const stopTracking = useLocationStore((s) => s.stopTracking);
+  const setGhostMode = useLocationStore((s) => s.setGhostMode);
+  const listenToFriends = useLocationStore((s) => s.listenToFriends);
 
   const { friends: activeFriends, initializeFriendListener } = useFriendStore();
 
@@ -99,34 +173,80 @@ export default function HomeMapScreen() {
     }
   }, [userProfile?.uid]);
 
-  // Dengarkan presence dan aktivitas teman secara real-time (Firestore/Simulation)
-  const listenToFriendsPresenceAndActivities = usePresenceStore((s) => s.listenToFriendsPresenceAndActivities);
+  // Dengarkan data eksplorasi peta secara real-time (Firestore / Local Cache)
   useEffect(() => {
-    const friendUids = activeFriends.map((f) => f.uid);
-    // Tambahkan UID simulasi agar presence mock-friends terdeteksi di simulasi
-    const uidsToListen = [...friendUids, "sim-1", "sim-2", "sim-3"];
-    const unsubscribe = listenToFriendsPresenceAndActivities(uidsToListen);
-    return () => unsubscribe();
-  }, [activeFriends]);
+    if (userProfile?.uid) {
+      const unsubscribe = initializeExplorationListener(userProfile.uid);
+      return () => unsubscribe();
+    }
+  }, [userProfile?.uid]);
 
+  // Dengarkan pencapaian dan leaderboard secara real-time
+  useEffect(() => {
+    if (userProfile?.uid) {
+      const unsubscribe = initializeGamificationStore(userProfile.uid);
+      return () => unsubscribe();
+    }
+  }, [userProfile?.uid]);
+
+  // Secara otomatis lacak dan buka grid peta saat lokasi GPS pengguna diperbarui
+  useEffect(() => {
+    if (location && location.latitude && location.longitude) {
+      trackPosition(location.latitude, location.longitude);
+    }
+  }, [location?.latitude, location?.longitude]);
+
+  const listenToFriendsPresenceAndActivities = usePresenceStore((s) => s.listenToFriendsPresenceAndActivities);
   const friendPresences = usePresenceStore((s) => s.friendPresences);
 
-  // Saring koordinat teman: tampilkan hanya teman yang terdaftar sebagai 'accepted', 
-  // atau teman mock simulasi (berawalan 'sim-' atau 'mock-') dan perkaya dengan status kehadiran real-time
-  const friends = allFriendsLocations.filter(
-    (loc) => activeFriends.some((f) => f.uid === loc.uid) || loc.uid.startsWith("sim-") || loc.uid.startsWith("mock-")
-  ).map((friend) => {
-    const presence = friendPresences[friend.uid];
-    return {
-      ...friend,
-      activity: presence?.activity || friend.activity || "online",
-      isOnline: presence?.status === "online" || presence?.status === "idle",
-      batteryLevel: presence?.batteryLevel !== undefined ? presence?.batteryLevel : friend.batteryLevel,
-      isCharging: presence?.isCharging !== undefined ? presence?.isCharging : friend.isCharging,
-    };
-  });
+  // Dengarkan presence dan aktivitas teman secara real-time (Firestore/Simulation)
+  // Stable UID string — effect only re-fires when the actual UIDs change, not on
+  // every reference change of the activeFriends array
+  const presenceUidString = useMemo(() => {
+    const realUids = activeFriends.map((f) => f.uid).sort();
+    return [...realUids, "sim-1", "sim-2", "sim-3"].join(",");
+  }, [activeFriends]);
 
-  const selectedFriend = friends.find((f) => f.uid === selectedFriendUid) || null;
+  useEffect(() => {
+    const uidsToListen = presenceUidString.split(",").filter(Boolean);
+    const unsubscribe = listenToFriendsPresenceAndActivities(uidsToListen);
+    return () => unsubscribe();
+  }, [presenceUidString]);
+
+  // Memoized friends list — only recomputed when source data actually changes
+  // This is the single most impactful optimization: prevents the map from
+  // re-rendering on every unrelated store update
+  const friends = useMemo(() => {
+    const acceptedUids = new Set(activeFriends.map((f) => f.uid));
+    return allFriendsLocations
+      .filter((loc) =>
+        acceptedUids.has(loc.uid) ||
+        loc.uid.startsWith("sim-") ||
+        loc.uid.startsWith("mock-")
+      )
+      .map((friend) => {
+        const presence = friendPresences[friend.uid];
+        return {
+          ...friend,
+          activity: presence?.activity || friend.activity || "online",
+          isOnline: presence?.status === "online" || presence?.status === "idle",
+          batteryLevel: presence?.batteryLevel !== undefined ? presence.batteryLevel : friend.batteryLevel,
+          isCharging: presence?.isCharging !== undefined ? presence.isCharging : friend.isCharging,
+        };
+      });
+  }, [allFriendsLocations, activeFriends, friendPresences]);
+
+  // Pre-warm image cache whenever the friend list changes
+  useEffect(() => {
+    const urls = friends.map((f) => f.avatarUrl).filter(Boolean);
+    if (urls.length > 0) ImageCache.prefetch(urls);
+  }, [friends]);
+
+  // Derive selectedFriend via memo — no inline .find() on every render
+  const selectedFriend = useMemo(
+    () => friends.find((f) => f.uid === selectedFriendUid) ?? null,
+    [friends, selectedFriendUid]
+  );
 
   // Mulai pelacakan lokasi foreground/background saat mount
   useEffect(() => {
@@ -150,6 +270,105 @@ export default function HomeMapScreen() {
       );
     }
   }, [selectedFriend?.latitude, selectedFriend?.longitude]);
+
+  // Geofence Dynamic Places real-time listener sync
+  useEffect(() => {
+    if (userProfile?.uid) {
+      const unsubscribe = useGeofenceStore.getState().initializeGeofenceSync(userProfile.uid);
+      return () => unsubscribe();
+    }
+  }, [userProfile?.uid]);
+
+  // Foreground Dynamic Island alert listener
+  useEffect(() => {
+    const geofenceStore = useGeofenceStore.getState();
+    geofenceStore.setNotificationListener((title, body, emoji) => {
+      triggerAlert(body, title, emoji);
+    });
+    return () => {
+      geofenceStore.removeNotificationListener();
+    };
+  }, []);
+
+  // Real-time evaluation hook for geofences, friends proximity, and friend activity changes
+  useEffect(() => {
+    if (location?.latitude && location?.longitude && friends.length > 0) {
+      const geofenceStore = useGeofenceStore.getState();
+      
+      // 1. Evaluate self geofence transitions dynamically against dynamic saved places
+      geofenceStore.evaluateSelfGeofences(location.latitude, location.longitude);
+      
+      // 2. Evaluate friend proximities dynamically
+      geofenceStore.evaluateFriendProximity(location.latitude, location.longitude, friends);
+
+      // 3. Evaluate friend activity transitions dynamically
+      friends.forEach((friend) => {
+        geofenceStore.evaluateFriendActivityChange(friend.uid, friend.displayName, friend.activity);
+      });
+    }
+  }, [location?.latitude, location?.longitude, friends]);
+
+  // Real-time Live Activity and Dynamic Island automatic simulator driver
+  useEffect(() => {
+    if (friends.length === 0) return;
+
+    // Find the first friend with an active status that can drive a Live Activity
+    const drivingFriend = friends.find((f) => f.activity === "driving");
+    const nearbyFriend = friends.find((f) => {
+      if (!location || !f.latitude || !f.longitude) return false;
+      const dist = calculateDistance(location.latitude, location.longitude, f.latitude, f.longitude) * 1000;
+      return dist <= 500; // nearby threshold 500m
+    });
+
+    const activeLive = useLiveActivityStore.getState().activeActivity;
+
+    if (drivingFriend) {
+      const place = drivingFriend.geofence || "Tempat Kerja";
+      if (!activeLive || activeLive.type !== "driving" || activeLive.displayName !== drivingFriend.displayName) {
+        // Start driving live activity automatically
+        startLiveActivity(
+          "driving",
+          drivingFriend.displayName,
+          "Menuju tempat Anda",
+          drivingFriend.avatarEmoji,
+          0.1,
+          { speed: 65, etaMinutes: 8, placeName: place }
+        );
+        // Also trigger dynamic island alert compactly
+        triggerDynamicIsland(
+          "Teman Mulai Berkendara",
+          `${drivingFriend.displayName} sedang menuju tempat Anda.`,
+          drivingFriend.avatarEmoji,
+          "Perjalanan"
+        );
+      } else {
+        // Increment progress smoothly in simulator
+        const nextRatio = Math.min(activeLive.progressRatio + 0.05, 1.0);
+        const nextEta = Math.max(8 - Math.round(nextRatio * 8), 1);
+        const currentSpeed = 50 + Math.round(Math.random() * 15);
+        
+        // If they arrive, trigger arrival state
+        if (nextRatio >= 0.95) {
+          startLiveActivity("arrival", drivingFriend.displayName, "Tiba di tujuan", drivingFriend.avatarEmoji, 1.0, { placeName: place });
+          triggerDynamicIsland("Teman Tiba!", `${drivingFriend.displayName} telah sampai di ${place}.`, "🏡", "Geofence");
+        } else {
+          updateLiveActivity({
+            progressRatio: nextRatio,
+            details: { speed: currentSpeed, etaMinutes: nextEta, placeName: place }
+          });
+        }
+      }
+    } else if (nearbyFriend && (!activeLive || activeLive.type !== "nearby")) {
+      // Start nearby friend live activity automatically
+      if (location && nearbyFriend.latitude && nearbyFriend.longitude) {
+        const dist = calculateDistance(location.latitude, location.longitude, nearbyFriend.latitude, nearbyFriend.longitude) * 1000;
+        const distText = dist < 1000 ? `${Math.round(dist)} m` : `${(dist / 1000).toFixed(1)} km`;
+        
+        startLiveActivity("nearby", nearbyFriend.displayName, "Sedang berada di dekatmu", nearbyFriend.avatarEmoji, 0.0, { distanceText: distText });
+        triggerDynamicIsland("Teman Sangat Dekat!", `${nearbyFriend.displayName} berada di sekitar Anda.`, "🤝", "Radar");
+      }
+    }
+  }, [friends, location?.latitude, location?.longitude]);
 
   // Animations
   const slideAnim = useRef(new Animated.Value(height)).current;
@@ -248,6 +467,59 @@ export default function HomeMapScreen() {
     ]).start();
   };
 
+  const renderLockScreenContent = () => {
+    return (
+      <View style={styles.lockContentContainer}>
+        {/* Apple iOS lock screen clock */}
+        <View style={styles.lockClockContainer}>
+          <Text style={styles.lockClockDate}>Rabu, 27 Mei</Text>
+          <Text style={styles.lockClockTime}>10:49</Text>
+        </View>
+
+        {/* Live Activity card positioned in its lock screen slot */}
+        {activeActivity && (
+          <View style={styles.lockActivityPositioner} pointerEvents="box-none">
+            <LiveActivityCard activity={activeActivity} />
+          </View>
+        )}
+
+        {/* Lock Screen Unlock hint */}
+        <View style={styles.lockFooter}>
+          <Text style={styles.lockFooterText}>Tap di mana saja untuk membuka kunci 🔓</Text>
+        </View>
+      </View>
+    );
+  };
+
+  const handleWidgetAction = useCallback((actionKey: string, payload?: any) => {
+    // 1. Close simulator overlay with spring collapse delay
+    setWidgetSimulatorActive(false);
+
+    // 2. Perform deep link callbacks
+    setTimeout(() => {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      
+      if (actionKey === "open-map") {
+        setFollowUser(true);
+        if (location) {
+          mapRef.current?.flyTo({ latitude: location.latitude, longitude: location.longitude }, 15);
+        }
+        triggerAlert("Peta berhasil dibuka kembali!", "Wander Utama", "🗺️");
+      } else if (actionKey === "select-friend") {
+        const friendUid = payload;
+        const friend = friends.find((f) => f.uid === friendUid);
+        if (friend) {
+          handleSelectFriend(friend);
+          triggerAlert(`Membuka profil teman: ${friend.displayName}`, "Teman Terpilih", friend.avatarEmoji);
+        }
+      } else if (actionKey === "open-places") {
+        setShowSavedPlaces(true);
+      } else if (actionKey === "open-notifs") {
+        setShowNotifCenter(true);
+      }
+    }, 400);
+  }, [location, friends, handleSelectFriend, setWidgetSimulatorActive]);
+
   const filteredFriends = friends.filter((f) =>
     f.displayName.toLowerCase().includes(searchQuery.toLowerCase())
   );
@@ -271,6 +543,11 @@ export default function HomeMapScreen() {
         userGeofence={regions.find((r) => r.isInside)?.type}
         followUser={followUser}
         onMapPan={() => setFollowUser(false)}
+        onMapPress={(coords) => {
+          if (isMapPickMode) {
+            setPickedCoords(coords);
+          }
+        }}
         style={StyleSheet.absoluteFill}
       />
 
@@ -422,6 +699,171 @@ export default function HomeMapScreen() {
         onDismiss={() => setIslandAlert((prev) => ({ ...prev, visible: false }))}
       />
 
+      {/* ── Right-side Floating Action Controls ── */}
+      {!isMapPickMode && (
+        <View style={styles.rightSideControls} pointerEvents="box-none">
+          {/* Notifications Bell button */}
+          <Pressable
+            id="notifications-bell-button"
+            onPress={() => {
+              Haptics.selectionAsync().catch(() => {});
+              setShowNotifCenter(true);
+            }}
+            style={[
+              styles.floatingActionBtn,
+              {
+                backgroundColor: isDark ? "rgba(18, 18, 22, 0.9)" : "rgba(255, 255, 255, 0.92)",
+                borderColor: showNotifCenter ? COLORS.cyan + "66" : theme.border,
+              },
+            ]}
+          >
+            <Bell size={20} color={showNotifCenter ? COLORS.cyan : theme.text} />
+            {unreadCount > 0 && (
+              <View style={[styles.unreadBadge, { backgroundColor: COLORS.pink }]}>
+                <Text style={styles.unreadBadgeText}>{unreadCount}</Text>
+              </View>
+            )}
+          </Pressable>
+
+          {/* Saved Places Bookmark button */}
+          <Pressable
+            id="saved-places-bookmark-button"
+            onPress={() => {
+              Haptics.selectionAsync().catch(() => {});
+              setShowSavedPlaces(true);
+            }}
+            style={[
+              styles.floatingActionBtn,
+              {
+                backgroundColor: isDark ? "rgba(18, 18, 22, 0.9)" : "rgba(255, 255, 255, 0.92)",
+                borderColor: showSavedPlaces ? COLORS.cyan + "66" : theme.border,
+              },
+            ]}
+          >
+            <MapPin size={20} color={showSavedPlaces ? COLORS.cyan : theme.text} />
+          </Pressable>
+
+          {/* Lock Screen Simulator Toggle button */}
+          <Pressable
+            id="lock-screen-toggle-button"
+            onPress={toggleLockScreenSimulation}
+            style={[
+              styles.floatingActionBtn,
+              {
+                backgroundColor: isDark ? "rgba(18, 18, 22, 0.9)" : "rgba(255, 255, 255, 0.92)",
+                borderColor: isLockScreenSimulated ? COLORS.purple + "66" : theme.border,
+              },
+            ]}
+          >
+            <Lock size={20} color={isLockScreenSimulated ? COLORS.purple : theme.text} />
+          </Pressable>
+
+          {/* Widget Simulator Toggle button */}
+          <Pressable
+            id="widget-simulator-toggle-button"
+            onPress={toggleWidgetSimulator}
+            style={[
+              styles.floatingActionBtn,
+              {
+                backgroundColor: isDark ? "rgba(18, 18, 22, 0.9)" : "rgba(255, 255, 255, 0.92)",
+                borderColor: isWidgetSimulatorActive ? COLORS.cyan + "66" : theme.border,
+              },
+            ]}
+          >
+            <Smartphone size={20} color={isWidgetSimulatorActive ? COLORS.cyan : theme.text} />
+          </Pressable>
+
+          {/* Exploration Mode Toggle button */}
+          <Pressable
+            id="exploration-mode-toggle-button"
+            onPress={toggleExplorationMode}
+            style={[
+              styles.floatingActionBtn,
+              {
+                backgroundColor: isDark ? "rgba(18, 18, 22, 0.9)" : "rgba(255, 255, 255, 0.92)",
+                borderColor: isExplorationActive ? COLORS.green + "66" : theme.border,
+              },
+            ]}
+          >
+            <Compass size={20} color={isExplorationActive ? COLORS.green : theme.text} />
+          </Pressable>
+
+          {/* Exploration Achievements Dashboard button */}
+          <Pressable
+            id="exploration-achievements-dashboard-button"
+            onPress={toggleDashboard}
+            style={[
+              styles.floatingActionBtn,
+              {
+                backgroundColor: isDark ? "rgba(18, 18, 22, 0.9)" : "rgba(255, 255, 255, 0.92)",
+                borderColor: isDashboardActive ? COLORS.cyan + "66" : theme.border,
+              },
+            ]}
+          >
+            <Award size={20} color={isDashboardActive ? COLORS.cyan : theme.text} />
+          </Pressable>
+        </View>
+      )}
+
+      {/* ── Saved Places Manager Panel ── */}
+      <SavedPlacesManager
+        visible={showSavedPlaces}
+        onClose={() => setShowSavedPlaces(false)}
+        isMapPickMode={isMapPickMode}
+        setMapPickMode={setMapPickMode}
+        pickedCoords={pickedCoords}
+        setPickedCoords={setPickedCoords}
+      />
+
+      {/* ── Notification Center Panel ── */}
+      <NotificationCenter
+        visible={showNotifCenter}
+        onClose={() => setShowNotifCenter(false)}
+      />
+
+      {/* ── iOS Widgets Simulator Panel ── */}
+      <HomeScreenWidgetsSimulator
+        visible={isWidgetSimulatorActive}
+        friends={friends}
+        userProfile={userProfile}
+        userBatteryLevel={batteryLevel}
+        userIsCharging={isCharging}
+        userActivity={selfActivity}
+        userGeofence={regions.find((r) => r.isInside)?.type || null}
+        onWidgetAction={handleWidgetAction}
+      />
+
+      {/* ── Exploration Mode HUD Card ── */}
+      <ExplorationStatsCard visible={isExplorationActive} />
+
+      {/* ── Exploration Achievements Dashboard Panel ── */}
+      <ExplorationDashboard visible={isDashboardActive} onClose={toggleDashboard} />
+
+      {/* ── Floating Live Activity Widget Card (Unlocked view) ── */}
+      {activeActivity && !isLockScreenSimulated && !isMapPickMode && (
+        <LiveActivityCard activity={activeActivity} />
+      )}
+
+      {/* ── Lock Screen Simulator Preview Mode ── */}
+      {isLockScreenSimulated && (
+        <View style={styles.lockScreenOverlay} pointerEvents="box-none">
+          {Platform.OS === "web" ? (
+            <Pressable
+              onPress={toggleLockScreenSimulation}
+              style={[styles.lockWallpaper, { backgroundColor: "rgba(8, 8, 12, 0.97)" }]}
+            >
+              {renderLockScreenContent()}
+            </Pressable>
+          ) : (
+            <BlurView intensity={98} tint="dark" style={styles.lockWallpaper}>
+              <Pressable onPress={toggleLockScreenSimulation} style={StyleSheet.absoluteFill}>
+                {renderLockScreenContent()}
+              </Pressable>
+            </BlurView>
+          )}
+        </View>
+      )}
+
       {/* ── Search results dropdown ── */}
       {isSearchFocused && searchQuery.length > 0 && (
         <View style={styles.searchResults}>
@@ -546,39 +988,20 @@ export default function HomeMapScreen() {
               </View>
             </View>
 
-            {/* Geofence Radius Selector */}
+            {/* Geofence Status Display */}
             {selectedFriend.geofence && (
               <View style={styles.radiusSelector}>
                 <Text style={[styles.radiusTitle, { color: theme.textMuted }]}>
-                  📏 RADIUS NOTIFIKASI GEOPENCING
+                  📍 STATUS LOKASI GEOPENCE
                 </Text>
-                <View style={styles.radiusRow}>
-                  {[100, 250, 500].map((r) => {
-                    const isSelected = radiusConfig[selectedFriend.geofence!] === r;
-
-                    return (
-                      <Pressable
-                        key={r}
-                        onPress={() => {
-                          const gf = selectedFriend.geofence;
-                          if (gf === "home" || gf === "work" || gf === "school") {
-                            useGeofenceStore.getState().updateRegionRadius(gf, r);
-                          }
-                          const placeName = gf === "home" ? "Rumah" : gf === "work" ? "Kantor" : gf === "school" ? "Sekolah" : "Tempat";
-                          triggerAlert(`Radius geofence ${placeName} disetel ke ${r}m!`, "Saved Places", "📏");
-                        }}
-                        style={[
-                          styles.radiusBtn,
-                          isSelected && { backgroundColor: COLORS.cyan + "25", borderColor: COLORS.cyan }
-                        ]}
-                      >
-                        <Text style={[styles.radiusBtnText, { color: isSelected ? COLORS.cyan : theme.text }]}>
-                          {r}m
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                </View>
+                <GlassCard style={{ flexDirection: "row", alignItems: "center", paddingVertical: 10, paddingHorizontal: 14 }}>
+                  <Text style={{ fontSize: 16, marginRight: 8 }}>
+                    {selectedFriend.geofence === "home" ? "🏡" : selectedFriend.geofence === "work" ? "💼" : selectedFriend.geofence === "school" ? "🏫" : "📍"}
+                  </Text>
+                  <Text style={[styles.statusTextPill, { color: theme.text, fontSize: 12 }]}>
+                    Sedang berada di {selectedFriend.geofence === "home" ? "Rumah" : selectedFriend.geofence === "work" ? "Kantor" : selectedFriend.geofence === "school" ? "Sekolah" : "Kawasan Favorit"}
+                  </Text>
+                </GlassCard>
               </View>
             )}
 
@@ -1004,6 +1427,103 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "800",
     fontFamily: "System",
+  },
+  rightSideControls: {
+    position: "absolute",
+    top: Platform.OS === "ios" ? 130 : 112,
+    right: 16,
+    flexDirection: "column",
+    gap: 12,
+    zIndex: 90,
+  },
+  floatingActionBtn: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    borderWidth: 1.5,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 6,
+    ...Platform.select({
+      web: { backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)" },
+    }),
+  },
+  unreadBadge: {
+    position: "absolute",
+    top: -2,
+    right: -2,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 4,
+    borderWidth: 1.5,
+    borderColor: "#121216",
+  },
+  unreadBadgeText: {
+    color: "#FFFFFF",
+    fontSize: 8,
+    fontWeight: "900",
+  },
+  lockScreenOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 99999,
+  },
+  lockWallpaper: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  lockContentContainer: {
+    flex: 1,
+    paddingTop: Platform.OS === "ios" ? 100 : 70,
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingBottom: Platform.OS === "ios" ? 64 : 40,
+  },
+  lockClockContainer: {
+    alignItems: "center",
+  },
+  lockClockDate: {
+    color: "#FFFFFF",
+    fontSize: 18,
+    fontWeight: "600",
+    letterSpacing: 0.5,
+  },
+  lockClockTime: {
+    color: "#FFFFFF",
+    fontSize: 84,
+    fontWeight: "300",
+    marginTop: -4,
+    fontFamily: "System",
+  },
+  lockActivityPositioner: {
+    width: "100%",
+    position: "absolute",
+    bottom: Platform.OS === "ios" ? 120 : 90,
+    left: 0,
+    right: 0,
+  },
+  lockFooter: {
+    alignItems: "center",
+    marginBottom: 10,
+  },
+  lockFooterText: {
+    color: "rgba(255, 255, 255, 0.6)",
+    fontSize: 12,
+    fontWeight: "600",
+    letterSpacing: 0.5,
   },
 });
 

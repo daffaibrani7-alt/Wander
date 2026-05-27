@@ -32,18 +32,51 @@ interface FriendState {
   initializeFriendListener: (currentUid: string) => () => void;
 }
 
-// In-memory profile cache to avoid redundant database reads for real-time listener updates
-const profileCache = new Map<string, UserProfile>();
+// In-memory profile cache with TTL (5 minutes) and LRU eviction (max 200 entries)
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const CACHE_MAX_SIZE = 200;
+
+interface CacheEntry {
+  profile: UserProfile;
+  cachedAt: number;
+}
+
+const profileCache = new Map<string, CacheEntry>();
+
+function _cacheSet(uid: string, profile: UserProfile): void {
+  // LRU eviction: delete oldest entry when at capacity
+  if (profileCache.size >= CACHE_MAX_SIZE && !profileCache.has(uid)) {
+    const oldestKey = profileCache.keys().next().value;
+    if (oldestKey) profileCache.delete(oldestKey);
+  }
+  profileCache.set(uid, { profile, cachedAt: Date.now() });
+}
 
 async function getProfileWithCache(uid: string): Promise<UserProfile | null> {
-  if (profileCache.has(uid)) {
-    return profileCache.get(uid)!;
+  const entry = profileCache.get(uid);
+
+  if (entry) {
+    const isStale = Date.now() - entry.cachedAt > CACHE_TTL_MS;
+    if (!isStale) {
+      return entry.profile;
+    }
+    // Serve stale value immediately but refresh in background
+    getUserProfile(uid).then((fresh) => {
+      if (fresh) _cacheSet(uid, fresh);
+    }).catch(() => {});
+    return entry.profile;
   }
+
   const profile = await getUserProfile(uid);
   if (profile) {
-    profileCache.set(uid, profile);
+    _cacheSet(uid, profile);
   }
   return profile;
+}
+
+/** Call on sign-out to prevent stale profiles leaking between sessions */
+export function clearProfileCache(): void {
+  profileCache.clear();
 }
 
 export const useFriendStore = create<FriendState>((set, get) => ({

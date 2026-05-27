@@ -1,6 +1,7 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useMemo, useState } from "react";
 import { View, Image, Text, StyleSheet, Animated } from "react-native";
 import { BatteryBadge } from "./BatteryBadge";
+import { ImageCache } from "../utils/imageCache";
 
 interface MapMarkerProps {
   displayName: string;
@@ -10,12 +11,44 @@ interface MapMarkerProps {
   isCharging: boolean;
   ghostMode: "precise" | "blurry" | "frozen";
   activity?: "online" | "idle" | "driving" | "sleeping" | "walking" | "traveling" | "home" | "work" | "school" | "cafe";
-  geofence?: "home" | "work" | "school" | "cafe" | "custom" | null; // updated types
+  geofence?: "home" | "work" | "school" | "cafe" | "custom" | null;
   isMe?: boolean;
   isOnline?: boolean;
 }
 
-export function MapMarker({
+// Pure helper — defined outside component so it's never recreated
+function resolveGlowColor(
+  isMe: boolean,
+  ghostMode: MapMarkerProps["ghostMode"],
+  activity: MapMarkerProps["activity"]
+): string {
+  if (isMe) return "#00F0FF";
+  if (ghostMode === "frozen") return "#8A3FFC";
+  if (ghostMode === "blurry") return "#FF5B99";
+  if (activity === "driving") return "#FF8A00";
+  if (activity === "sleeping") return "#8A3FFC";
+  if (activity === "walking") return "#FF5B99";
+  if (activity === "traveling") return "#00F0FF";
+  return "#2BE080";
+}
+
+// Custom equality — only re-render if visually meaningful props changed
+function arePropsEqual(prev: MapMarkerProps, next: MapMarkerProps): boolean {
+  return (
+    prev.avatarUrl === next.avatarUrl &&
+    prev.avatarEmoji === next.avatarEmoji &&
+    prev.displayName === next.displayName &&
+    prev.batteryLevel === next.batteryLevel &&
+    prev.isCharging === next.isCharging &&
+    prev.ghostMode === next.ghostMode &&
+    prev.activity === next.activity &&
+    prev.geofence === next.geofence &&
+    prev.isMe === next.isMe &&
+    prev.isOnline === next.isOnline
+  );
+}
+
+function MapMarkerComponent({
   displayName,
   avatarUrl,
   avatarEmoji,
@@ -28,8 +61,12 @@ export function MapMarker({
   isOnline = true,
 }: MapMarkerProps) {
   const scaleAnim = useRef(new Animated.Value(0)).current;
+  const [imageError, setImageError] = useState(false);
 
-  // Premium spring bounce micro-animation on mount
+  // Resolve URI synchronously — ImageCache.prefetch() in home.tsx pre-warms this
+  const resolvedUri = ImageCache.resolve(avatarUrl);
+
+  // Premium spring bounce on mount — only once
   useEffect(() => {
     Animated.spring(scaleAnim, {
       toValue: 1,
@@ -37,24 +74,22 @@ export function MapMarker({
       friction: 6,
       useNativeDriver: true,
     }).start();
-  }, []);
-  
-  // Decide glowing border color based on status activity dynamically (Zenly style!)
-  const getGlowColor = () => {
-    if (isMe) return "#00F0FF"; // Cyan for user
-    if (ghostMode === "frozen") return "#8A3FFC"; // Purple for Frozen
-    if (ghostMode === "blurry") return "#FF5B99"; // Pink for Blurry
-    
-    // Activity-based dynamic glows
-    if (activity === "driving") return "#FF8A00"; // Orange
-    if (activity === "sleeping") return "#8A3FFC"; // Dark Purple
-    if (activity === "walking") return "#FF5B99"; // Hot Pink
-    if (activity === "traveling") return "#00F0FF"; // Bright Cyan
-    
-    return "#2BE080"; // Neon Green for default Active/Online
-  };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const glowColor = getGlowColor();
+  // Reset error flag when avatar URL changes
+  const prevUrlRef = useRef(avatarUrl);
+  if (prevUrlRef.current !== avatarUrl) {
+    prevUrlRef.current = avatarUrl;
+    // imageError will be reset by the key change on the Image component below
+  }
+
+  // Memoize — only recalculate when colour-affecting props change
+  const glowColor = useMemo(
+    () => resolveGlowColor(isMe, ghostMode, activity),
+    [isMe, ghostMode, activity]
+  );
+
+  const showActivityBadge = (geofence || (activity && activity !== "online"));
 
   return (
     <Animated.View style={[styles.container, { transform: [{ scale: scaleAnim }] }]}>
@@ -62,8 +97,14 @@ export function MapMarker({
       <View style={[styles.glowRing, { borderColor: glowColor }]}>
         {/* Avatar Wrapper */}
         <View style={styles.avatarWrapper}>
-          {avatarUrl ? (
-            <Image source={{ uri: avatarUrl }} style={styles.avatarImage} />
+          {resolvedUri && !imageError ? (
+            <Image
+              key={resolvedUri}
+              source={{ uri: resolvedUri }}
+              style={styles.avatarImage}
+              fadeDuration={200}
+              onError={() => setImageError(true)}
+            />
           ) : (
             <View style={[styles.avatarFallback, { backgroundColor: glowColor }]}>
               <Text style={styles.fallbackText}>{displayName.slice(0, 2).toUpperCase()}</Text>
@@ -77,7 +118,7 @@ export function MapMarker({
         </View>
 
         {/* Floating Activity/Geofence Status Badge */}
-        {(geofence || (activity && activity !== "online")) && (
+        {showActivityBadge && (
           <View style={styles.activityBadge}>
             <Text style={{ fontSize: 10 }}>
               {geofence === "home" || activity === "home" ? "🏡" : ""}
@@ -106,12 +147,14 @@ export function MapMarker({
       <View style={styles.batteryBadgeContainer}>
         <BatteryBadge level={batteryLevel} isCharging={isCharging} size="sm" />
       </View>
-      
+
       {/* Mini stem pointing down */}
       <View style={[styles.markerStem, { borderTopColor: glowColor }]} />
     </Animated.View>
   );
 }
+
+export const MapMarker = React.memo(MapMarkerComponent, arePropsEqual);
 
 const styles = StyleSheet.create({
   container: {

@@ -154,6 +154,10 @@ export const useLocationStore = create<LocationState>((set, get) => {
   let batLevelSub: any = null;
   let batStateSub: any = null;
   let powerModeSub: any = null;
+  // Guard: prevents overlapping adjustTrackingParameters calls from creating zombie subscriptions
+  let isAdjusting = false;
+  // Sentinel: ensures callbacks fired after stopTracking() are no-ops
+  let isStopped = false;
 
   // Persisted state to throttle database writes for cost efficiency
   let lastSyncTime = 0;
@@ -228,6 +232,7 @@ export const useLocationStore = create<LocationState>((set, get) => {
         fgSubscription = await Location.watchPositionAsync(
           fgOptions,
           async (newLocation) => {
+            if (isStopped) return; // no-op if tracking was stopped during async setup
             set({ location: newLocation.coords });
             await get().syncLocationToFirestore(newLocation.coords);
             useGeofenceStore.getState().evaluateSelfGeofences(newLocation.coords.latitude, newLocation.coords.longitude);
@@ -276,6 +281,7 @@ export const useLocationStore = create<LocationState>((set, get) => {
     },
 
     stopTracking: () => {
+      isStopped = true;
       if (fgSubscription) {
         fgSubscription.remove();
         fgSubscription = null;
@@ -302,11 +308,16 @@ export const useLocationStore = create<LocationState>((set, get) => {
       }
 
       set({ trackingActive: false });
+      // Reset sentinel so tracking can be restarted later
+      isStopped = false;
     },
 
     adjustTrackingParameters: async () => {
       const { trackingActive, batteryLevel, isCharging, lowPowerMode } = get();
       if (!trackingActive) return;
+      // Prevent overlapping calls — battery events can fire rapidly
+      if (isAdjusting) return;
+      isAdjusting = true;
 
       try {
         // Update Foreground Watcher dynamically to optimize battery life
@@ -319,6 +330,7 @@ export const useLocationStore = create<LocationState>((set, get) => {
         fgSubscription = await Location.watchPositionAsync(
           fgOptions,
           async (newLocation) => {
+            if (isStopped) return;
             set({ location: newLocation.coords });
             await get().syncLocationToFirestore(newLocation.coords);
             useGeofenceStore.getState().evaluateSelfGeofences(newLocation.coords.latitude, newLocation.coords.longitude);
@@ -336,6 +348,8 @@ export const useLocationStore = create<LocationState>((set, get) => {
         }
       } catch {
         // Dynamic throttling not supported
+      } finally {
+        isAdjusting = false;
       }
     },
 

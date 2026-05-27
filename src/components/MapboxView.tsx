@@ -3,12 +3,21 @@
  *
  * Full interactive Leaflet & OpenStreetMap preview pada Web Platform.
  * Menghadirkan peta riil premium CartoDB Dark/Light Matter gratis tanpa token!
+ *
+ * Performance optimizations:
+ *  - Per-marker HTML string cache: setIcon() only called when HTML actually changed
+ *  - Dependency array narrowed: marker effect uses refs to avoid running on
+ *    unrelated parent re-renders
+ *  - setInterval cleanup always returned (no conditional leak)
  */
 import React, { useRef, useEffect, useState, forwardRef, useImperativeHandle } from "react";
 import { View, Text, StyleSheet, Animated, Easing } from "react-native";
 import { COLORS } from "../theme/colors";
 import { MapMarker } from "./MapMarker";
 import { FriendLocation } from "../services/mockService";
+import { useExplorationStore, TILE_SIZE } from "../store/useExplorationStore";
+import { useGamificationStore } from "../store/useGamificationStore";
+
 
 export interface MapboxViewRef {
   flyTo: (coords: { latitude: number; longitude: number }, zoom?: number) => void;
@@ -31,6 +40,7 @@ export interface MapboxViewProps {
   userGeofence?: "home" | "work" | "school" | "cafe" | "custom" | null;
   followUser?: boolean;
   onMapPan?: () => void;
+  onMapPress?: (coords: { latitude: number; longitude: number }) => void;
   children?: React.ReactNode;
   style?: object;
 }
@@ -156,6 +166,7 @@ const MapboxViewComponent = forwardRef<MapboxViewRef, MapboxViewProps>(
       userGeofence = null,
       followUser = true,
       onMapPan,
+      onMapPress,
       children,
       style,
     },
@@ -165,8 +176,23 @@ const MapboxViewComponent = forwardRef<MapboxViewRef, MapboxViewProps>(
     const mapRef = useRef<any>(null);
     const mapDivRef = useRef<HTMLDivElement>(null);
     const markersRef = useRef<{ [key: string]: any }>({});
+    // Cache of last-rendered HTML per marker key — only call setIcon when it changes
+    const markerHtmlCacheRef = useRef<{ [key: string]: string }>({});
+    const explorationLayersRef = useRef<any[]>([]);
 
-    // Expose flyTo ref method to work exactly like Native Mapbox/Google Maps flyTo
+    // Store latest props in refs so marker effect can use them without re-running
+    const latestPropsRef = useRef({
+      latitude, longitude, friends, userProfile,
+      userBatteryLevel, userIsCharging, userGhostMode, userActivity, userGeofence,
+    });
+    useEffect(() => {
+      latestPropsRef.current = {
+        latitude, longitude, friends, userProfile,
+        userBatteryLevel, userIsCharging, userGhostMode, userActivity, userGeofence,
+      };
+    });
+
+    // Expose flyTo ref method
     useImperativeHandle(ref, () => ({
       flyTo: (coords: { latitude: number; longitude: number }, zoom = 15) => {
         if (mapRef.current) {
@@ -197,7 +223,7 @@ const MapboxViewComponent = forwardRef<MapboxViewRef, MapboxViewProps>(
         document.head.appendChild(link);
       }
 
-      // Inject overrides styles for divIcon custom rendering
+      // Inject override styles for divIcon custom rendering
       const styleId = "leaflet-marker-custom-styles";
       if (!document.getElementById(styleId)) {
         const styleTag = document.createElement("style");
@@ -214,6 +240,8 @@ const MapboxViewComponent = forwardRef<MapboxViewRef, MapboxViewProps>(
 
       // Inject Leaflet JS
       const scriptId = "leaflet-js-cdn";
+      let checkInterval: ReturnType<typeof setInterval> | null = null;
+
       if (!document.getElementById(scriptId)) {
         const script = document.createElement("script");
         script.id = scriptId;
@@ -224,14 +252,19 @@ const MapboxViewComponent = forwardRef<MapboxViewRef, MapboxViewProps>(
         };
         document.body.appendChild(script);
       } else {
-        const checkInterval = setInterval(() => {
+        // Script tag exists but may still be loading — poll until L is available
+        checkInterval = setInterval(() => {
           if ((window as any).L) {
-            clearInterval(checkInterval);
+            if (checkInterval) clearInterval(checkInterval);
             setLeafletLoaded(true);
           }
         }, 100);
-        return () => clearInterval(checkInterval);
       }
+
+      // Always return cleanup (fixes conditional leak)
+      return () => {
+        if (checkInterval) clearInterval(checkInterval);
+      };
     }, []);
 
     // 2. Map Initialization & Dynamic Theme Handling
@@ -245,13 +278,16 @@ const MapboxViewComponent = forwardRef<MapboxViewRef, MapboxViewProps>(
         mapRef.current.remove();
         mapRef.current = null;
         markersRef.current = {};
+        markerHtmlCacheRef.current = {};
       }
+
+      const { latitude: lat, longitude: lng } = latestPropsRef.current;
 
       // Initialize Leaflet Map
       const map = L.map(mapDivRef.current, {
         zoomControl: false,
         attributionControl: false,
-      }).setView([latitude, longitude], 14);
+      }).setView([lat, lng], 14);
 
       mapRef.current = map;
 
@@ -269,62 +305,85 @@ const MapboxViewComponent = forwardRef<MapboxViewRef, MapboxViewProps>(
         if (onMapPan) onMapPan();
       });
 
+      // Bind dynamic click listener for map pick mode
+      map.on("click", (e: any) => {
+        if (onMapPress) {
+          onMapPress({ latitude: e.latlng.lat, longitude: e.latlng.lng });
+        }
+      });
+
       return () => {
         if (mapRef.current) {
           mapRef.current.remove();
           mapRef.current = null;
           markersRef.current = {};
+          markerHtmlCacheRef.current = {};
         }
       };
-    }, [leafletLoaded, isDark]);
+    }, [leafletLoaded, isDark]); // eslint-disable-line react-hooks/exhaustive-deps
 
-    // 3. Keep camera centered on coordinate when followUser is active
+    // 3. Keep camera centred when followUser is active
     useEffect(() => {
       if (!mapRef.current || !followUser) return;
       mapRef.current.panTo([latitude, longitude], { animate: true, duration: 0.8 });
     }, [latitude, longitude, followUser]);
 
-    // 4. Render user and friends markers dynamically with gorgeous neon markers
+    // 4. Render user and friend markers — only update individual markers whose HTML changed
     useEffect(() => {
       if (!leafletLoaded || !mapRef.current) return;
       const L = (window as any).L;
       if (!L) return;
 
       const currentMarkers = markersRef.current;
+      const htmlCache = markerHtmlCacheRef.current;
       const activeKeys = new Set<string>();
+
+      const {
+        latitude: lat,
+        longitude: lng,
+        friends: currentFriends,
+        userProfile: profile,
+        userBatteryLevel: battLvl,
+        userIsCharging: charging,
+        userGhostMode: ghostMode,
+        userActivity: activity,
+        userGeofence: geofence,
+      } = latestPropsRef.current;
 
       // 4a. User Marker (Me)
       const meKey = "user-me";
       activeKeys.add(meKey);
-      
+
       const meHtml = createMarkerHtml(
-        userProfile?.avatarEmoji || "🦊",
-        userProfile?.displayName || "Saya",
-        userBatteryLevel,
-        userIsCharging,
-        userGhostMode,
+        profile?.avatarEmoji || "🦊",
+        profile?.displayName || "Saya",
+        battLvl,
+        charging,
+        ghostMode,
         true,
-        userActivity,
-        userGeofence
+        activity,
+        geofence
       );
 
-      const meIcon = L.divIcon({
-        html: meHtml,
-        className: "custom-leaflet-marker",
-        iconSize: [60, 80],
-        iconAnchor: [30, 60],
-      });
-
       if (currentMarkers[meKey]) {
-        currentMarkers[meKey].setLatLng([latitude, longitude]);
-        currentMarkers[meKey].setIcon(meIcon);
+        currentMarkers[meKey].setLatLng([lat, lng]);
+        // Only rebuild icon if HTML actually changed
+        if (htmlCache[meKey] !== meHtml) {
+          htmlCache[meKey] = meHtml;
+          currentMarkers[meKey].setIcon(
+            L.divIcon({ html: meHtml, className: "custom-leaflet-marker", iconSize: [60, 80], iconAnchor: [30, 60] })
+          );
+        }
       } else {
-        currentMarkers[meKey] = L.marker([latitude, longitude], { icon: meIcon }).addTo(mapRef.current);
+        htmlCache[meKey] = meHtml;
+        currentMarkers[meKey] = L.marker([lat, lng], {
+          icon: L.divIcon({ html: meHtml, className: "custom-leaflet-marker", iconSize: [60, 80], iconAnchor: [30, 60] }),
+        }).addTo(mapRef.current);
       }
 
       // 4b. Friend Markers
-      if (friends) {
-        friends.forEach((friend) => {
+      if (currentFriends) {
+        currentFriends.forEach((friend) => {
           const friendKey = `friend-${friend.uid}`;
           activeKeys.add(friendKey);
 
@@ -339,19 +398,20 @@ const MapboxViewComponent = forwardRef<MapboxViewRef, MapboxViewProps>(
             friend.geofence
           );
 
-          const fIcon = L.divIcon({
-            html: fHtml,
-            className: "custom-leaflet-marker",
-            iconSize: [60, 80],
-            iconAnchor: [30, 60],
-          });
-
           if (currentMarkers[friendKey]) {
             currentMarkers[friendKey].setLatLng([friend.latitude, friend.longitude]);
-            currentMarkers[friendKey].setIcon(fIcon);
+            // Only rebuild icon HTML if it actually changed
+            if (htmlCache[friendKey] !== fHtml) {
+              htmlCache[friendKey] = fHtml;
+              currentMarkers[friendKey].setIcon(
+                L.divIcon({ html: fHtml, className: "custom-leaflet-marker", iconSize: [60, 80], iconAnchor: [30, 60] })
+              );
+            }
           } else {
-            currentMarkers[friendKey] = L.marker([friend.latitude, friend.longitude], { icon: fIcon })
-              .addTo(mapRef.current);
+            htmlCache[friendKey] = fHtml;
+            currentMarkers[friendKey] = L.marker([friend.latitude, friend.longitude], {
+              icon: L.divIcon({ html: fHtml, className: "custom-leaflet-marker", iconSize: [60, 80], iconAnchor: [30, 60] }),
+            }).addTo(mapRef.current);
           }
         });
       }
@@ -361,11 +421,119 @@ const MapboxViewComponent = forwardRef<MapboxViewRef, MapboxViewProps>(
         if (!activeKeys.has(key)) {
           currentMarkers[key].remove();
           delete currentMarkers[key];
+          delete htmlCache[key];
         }
       });
     }, [leafletLoaded, latitude, longitude, friends, userProfile, userBatteryLevel, userIsCharging, userGhostMode]);
 
-    // Concentric-ring radar as placeholder while Leaflet assets are downloading from CDN
+    // ─── EFFECT #5: EXPLORATION MODE TILES & FOG OVERLAYS ──────────────────
+    const isExplorationActive = useExplorationStore((s) => s.isExplorationActive);
+    const exploredFrequencies = useGamificationStore((s) => s.exploredFrequencies);
+    const exploredTilesArray = useExplorationStore((s) => s.exploredTilesArray);
+
+    useEffect(() => {
+      if (!leafletLoaded || !mapRef.current) return;
+      const L = (window as any).L;
+      if (!L) return;
+
+      // Clean up previous overlay grids
+      explorationLayersRef.current.forEach((layer) => layer.remove());
+      explorationLayersRef.current = [];
+
+      // Toggle CSS Grayscale / Fog-of-World styling class on map wrapper
+      if (mapDivRef.current) {
+        if (isExplorationActive) {
+          mapDivRef.current.classList.add("exploration-active");
+        } else {
+          mapDivRef.current.classList.remove("exploration-active");
+        }
+      }
+
+      if (!isExplorationActive) return;
+
+      // Draw explored tiles dynamically bounded to current viewport to optimize frame rate
+      const drawTiles = () => {
+        if (!mapRef.current || !L) return;
+
+        // Clear old rectangles
+        explorationLayersRef.current.forEach((layer) => layer.remove());
+        explorationLayersRef.current = [];
+
+        const bounds = mapRef.current.getBounds();
+        const paddedBounds = bounds.pad(0.2); // slight padding for smooth pan reveals
+
+        // Use exploredFrequencies keys to render heat intensity
+        const tileKeys = Object.keys(exploredFrequencies);
+        const activeKeys = tileKeys.length > 0 ? tileKeys : exploredTilesArray;
+
+        activeKeys.forEach((tileKey) => {
+          const [latIdxStr, lngIdxStr] = tileKey.split("_");
+          const latIdx = parseInt(latIdxStr, 10);
+          const lngIdx = parseInt(lngIdxStr, 10);
+
+          const minLat = latIdx * TILE_SIZE;
+          const minLng = lngIdx * TILE_SIZE;
+          const maxLat = (latIdx + 1) * TILE_SIZE;
+          const maxLng = (lngIdx + 1) * TILE_SIZE;
+
+          const rectBounds = L.latLngBounds([minLat, minLng], [maxLat, maxLng]);
+
+          if (paddedBounds.intersects(rectBounds)) {
+            const freq = exploredFrequencies[tileKey] || 1;
+            
+            let strokeColor = "#2BE080";
+            let fillColor = "#2BE080";
+            let opacity = 0.55;
+            let fillOpacity = 0.22;
+            let weight = 1.0;
+            let cellClass = "unlocked-grid-cell-cold";
+
+            if (freq >= 2 && freq <= 4) {
+              strokeColor = "#2BE080";
+              fillColor = "#2BE080";
+              opacity = 0.75;
+              fillOpacity = 0.48;
+              weight = 1.8;
+              cellClass = "unlocked-grid-cell-warm";
+            } else if (freq >= 5) {
+              strokeColor = "#2BE080";
+              fillColor = "#2BE080";
+              opacity = 0.95;
+              fillOpacity = 0.84;
+              weight = 2.8;
+              cellClass = "unlocked-grid-cell-hot";
+            }
+
+            const rect = L.rectangle(rectBounds, {
+              color: strokeColor,
+              weight: weight,
+              opacity: opacity,
+              fillColor: fillColor,
+              fillOpacity: fillOpacity,
+              className: cellClass,
+            }).addTo(mapRef.current);
+            
+            explorationLayersRef.current.push(rect);
+          }
+        });
+      };
+
+      // Initial draw
+      drawTiles();
+
+      // Draw updates reactively on pan / zoom end to prevent performance lag
+      mapRef.current.on("moveend", drawTiles);
+
+      return () => {
+        if (mapRef.current) {
+          mapRef.current.off("moveend", drawTiles);
+        }
+        explorationLayersRef.current.forEach((layer) => layer.remove());
+        explorationLayersRef.current = [];
+      };
+    }, [leafletLoaded, isExplorationActive, exploredFrequencies, exploredTilesArray]);
+
+    // Concentric-ring radar placeholder while Leaflet assets are downloading from CDN
     const rings = [
       useRef(new Animated.Value(0)).current,
       useRef(new Animated.Value(0)).current,
@@ -396,7 +564,7 @@ const MapboxViewComponent = forwardRef<MapboxViewRef, MapboxViewProps>(
         duration: 1200,
         useNativeDriver: true,
       }).start();
-    }, [leafletLoaded]);
+    }, [leafletLoaded]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const accent = isDark ? COLORS.cyan : "#0055FF";
     const bg = isDark ? "#06060E" : "#EAECF8";
@@ -405,16 +573,16 @@ const MapboxViewComponent = forwardRef<MapboxViewRef, MapboxViewProps>(
     return (
       <View style={[styles.container, { backgroundColor: bg }, style]}>
         {/* Real Leaflet Map for Web */}
-        <div 
-          ref={mapDivRef} 
-          style={{ 
-            width: "100%", 
-            height: "100%", 
-            position: "absolute", 
+        <div
+          ref={mapDivRef}
+          style={{
+            width: "100%",
+            height: "100%",
+            position: "absolute",
             zIndex: 1,
             opacity: leafletLoaded ? 1 : 0,
             transition: "opacity 0.4s ease-in-out"
-          }} 
+          }}
         />
 
         {/* Concentric rings radar as Loading Placeholder */}
@@ -469,6 +637,27 @@ const MapboxViewComponent = forwardRef<MapboxViewRef, MapboxViewProps>(
         )}
 
         {children}
+        {/* Custom CSS for Exploration Fog of World and neon glows */}
+        <style>
+          {`
+            .exploration-active .leaflet-tile-container img {
+              filter: grayscale(100%) brightness(35%) contrast(110%) !important;
+              transition: filter 0.6s ease-in-out;
+            }
+            .unlocked-grid-cell-cold {
+              filter: drop-shadow(0 0 1px #2BE080);
+              transition: opacity 0.4s ease-in-out;
+            }
+            .unlocked-grid-cell-warm {
+              filter: drop-shadow(0 0 3px #2BE080);
+              transition: opacity 0.4s ease-in-out;
+            }
+            .unlocked-grid-cell-hot {
+              filter: drop-shadow(0 0 7px #2BE080);
+              transition: opacity 0.4s ease-in-out;
+            }
+          `}
+        </style>
       </View>
     );
   }

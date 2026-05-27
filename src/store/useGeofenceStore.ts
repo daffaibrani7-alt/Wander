@@ -2,6 +2,9 @@ import { create } from "zustand";
 import * as Notifications from "expo-notifications";
 import * as Haptics from "expo-haptics";
 import { Platform } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { geofenceService, SavedPlace } from "../services/geofenceService";
+import { auth } from "../config/firebase";
 
 // Configure Expo Notifications handler for foreground system alerts
 try {
@@ -19,29 +22,69 @@ try {
 }
 
 export interface GeofenceRegion {
-  id: string;
-  name: string;
+  id: string; // matches placeId
+  name: string; // matches label
   latitude: number;
   longitude: number;
   radius: number; // in meters
   type: "home" | "work" | "school" | "cafe" | "custom";
   isInside: boolean;
+  emoji?: string;
+}
+
+export interface ActivityNotification {
+  id: string;
+  title: string;
+  body: string;
+  emoji: string;
+  timestamp: string; // ISO string
+  read: boolean;
 }
 
 interface GeofenceState {
   regions: GeofenceRegion[];
-  radiusConfig: { [key: string]: number }; // key: geofence type/id, value: radius in meters
+  notificationsFeed: ActivityNotification[];
+  nearbyFriendThresholdMeters: number;
+  isNotificationsEnabled: boolean;
+  isProximityEnabled: boolean;
+  isActivityEnabled: boolean;
   
   // Actions
   initializeNotifications: () => Promise<void>;
-  updateRegionRadius: (type: "home" | "work" | "school", radius: number) => void;
-  evaluateSelfGeofences: (latitude: number, longitude: number) => void;
-  triggerLocalNotification: (title: string, body: string) => Promise<void>;
+  initializeGeofenceSync: (uid: string) => () => void;
+  evaluateSelfGeofences: (latitude: number, longitude: number) => Promise<void>;
+  evaluateFriendProximity: (myLat: number, myLng: number, friends: any[]) => void;
+  evaluateFriendActivityChange: (friendUid: string, displayName: string, activity: string) => void;
+  triggerLocalNotification: (title: string, body: string, emoji?: string) => Promise<void>;
+  setNotificationListener: (listener: (title: string, body: string, emoji: string) => void) => void;
+  removeNotificationListener: () => void;
+  addSavedPlaceAction: (uid: string, place: Omit<SavedPlace, "uid" | "createdAt">) => Promise<void>;
+  deleteSavedPlaceAction: (uid: string, placeId: string) => Promise<void>;
+  clearNotificationsFeed: () => Promise<void>;
+  markNotificationsAsRead: () => void;
+  toggleSetting: (key: "notifications" | "proximity" | "activity") => void;
+  addFeedItem: (title: string, body: string, emoji: string) => void;
 }
+
+// Internal throttling system to avoid spamming alerts (e.g. 10 mins cooldown)
+const throttleMap = new Map<string, any>();
+
+function isThrottled(key: string, cooldownMs: number = 10 * 60 * 1000): boolean {
+  const now = Date.now();
+  const lastTime = throttleMap.get(key) || 0;
+  if (now - lastTime < cooldownMs) {
+    return true;
+  }
+  throttleMap.set(key, now);
+  return false;
+}
+
+// Foreground UI Alert Event Listener
+let uiNotificationListener: ((title: string, body: string, emoji: string) => void) | null = null;
 
 // Helper: Calculate distance in km
 function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R = 6371; // Radius bumi dalam km
+  const R = 6371; // Earth radius in km
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
   const dLon = ((lon2 - lon1) * Math.PI) / 180;
   const a =
@@ -55,44 +98,13 @@ function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: numbe
 }
 
 export const useGeofenceStore = create<GeofenceState>((set, get) => {
-  // Initialize default saved places for current user
-  const initialRegions: GeofenceRegion[] = [
-    {
-      id: "self-home",
-      name: "Rumah Saya",
-      latitude: -6.2088,
-      longitude: 106.8456,
-      radius: 200,
-      type: "home",
-      isInside: false,
-    },
-    {
-      id: "self-work",
-      name: "Kantor Saya",
-      latitude: -6.2045,
-      longitude: 106.8490,
-      radius: 250,
-      type: "work",
-      isInside: false,
-    },
-    {
-      id: "self-school",
-      name: "Sekolah Saya",
-      latitude: -6.2110,
-      longitude: 106.8520,
-      radius: 200,
-      type: "school",
-      isInside: false,
-    },
-  ];
-
   return {
-    regions: initialRegions,
-    radiusConfig: {
-      home: 200,
-      work: 250,
-      school: 200,
-    },
+    regions: [],
+    notificationsFeed: [],
+    nearbyFriendThresholdMeters: 500, // meters
+    isNotificationsEnabled: true,
+    isProximityEnabled: true,
+    isActivityEnabled: true,
 
     initializeNotifications: async () => {
       if (Platform.OS === "web") return;
@@ -122,24 +134,76 @@ export const useGeofenceStore = create<GeofenceState>((set, get) => {
       }
     },
 
-    updateRegionRadius: (type, radius) => {
-      Haptics.selectionAsync().catch(() => {});
-      
-      const { radiusConfig, regions } = get();
-      const updatedConfig = { ...radiusConfig, [type]: radius };
-      
-      const updatedRegions = regions.map((r) => {
-        if (r.type === type) {
-          return { ...r, radius };
-        }
-        return r;
+    initializeGeofenceSync: (uid) => {
+      // 1. First attempt to load cached places immediately
+      AsyncStorage.getItem(`wander_places_${uid}`)
+        .then((cached) => {
+          if (cached) {
+            try {
+              const places = JSON.parse(cached) as SavedPlace[];
+              const currentRegions = get().regions;
+              const syncedRegions = places.map((p) => {
+                const existing = currentRegions.find((r) => r.id === p.placeId);
+                return {
+                  id: p.placeId,
+                  name: p.label,
+                  latitude: p.latitude,
+                  longitude: p.longitude,
+                  radius: p.radius,
+                  type: p.type,
+                  emoji: p.emoji,
+                  isInside: existing ? existing.isInside : false,
+                };
+              });
+              set({ regions: syncedRegions });
+            } catch (e) {
+              console.error("Gagal parse cached places:", e);
+            }
+          }
+        })
+        .catch(() => {});
+
+      // 2. Load cached notifications feed
+      AsyncStorage.getItem(`wander_feed_${uid}`)
+        .then((cached) => {
+          if (cached) {
+            try {
+              set({ notificationsFeed: JSON.parse(cached) });
+            } catch {}
+          }
+        })
+        .catch(() => {});
+
+      // 3. Realtime listening via firestore service
+      const unsubscribe = geofenceService.listenToPlaces(uid, (places) => {
+        // Cache places for offline/background access
+        AsyncStorage.setItem(`wander_places_${uid}`, JSON.stringify(places)).catch(() => {});
+
+        const currentRegions = get().regions;
+        const syncedRegions = places.map((p) => {
+          const existing = currentRegions.find((r) => r.id === p.placeId);
+          return {
+            id: p.placeId,
+            name: p.label,
+            latitude: p.latitude,
+            longitude: p.longitude,
+            radius: p.radius,
+            type: p.type,
+            emoji: p.emoji,
+            isInside: existing ? existing.isInside : false,
+          };
+        });
+
+        set({ regions: syncedRegions });
+        console.log(`🔄 Geofence regions synchronized: ${syncedRegions.length} places.`);
       });
 
-      set({ radiusConfig: updatedConfig, regions: updatedRegions });
-      console.log(`📏 Geofence Radius updated: ${type} -> ${radius}m`);
+      return unsubscribe;
     },
 
-    evaluateSelfGeofences: (latitude, longitude) => {
+    evaluateSelfGeofences: async (latitude, longitude) => {
+      if (!get().isNotificationsEnabled) return;
+
       const { regions } = get();
       let stateChanged = false;
 
@@ -148,34 +212,37 @@ export const useGeofenceStore = create<GeofenceState>((set, get) => {
         const distMeters = calculateDistance(latitude, longitude, region.latitude, region.longitude) * 1000;
         const insideNow = distMeters <= region.radius;
 
-        // Transition detection
+        // Transition: ENTER (Arrival)
         if (insideNow && !region.isInside) {
-          // ENTER geofence (Arrival)
           stateChanged = true;
-          const emoji = region.type === "home" ? "🏡" : region.type === "work" ? "💼" : "🏫";
-          const placeName = region.type === "home" ? "Rumah" : region.type === "work" ? "Tempat Kerja" : "Sekolah";
+          const emoji = region.emoji || (region.type === "home" ? "🏡" : region.type === "work" ? "💼" : "🏫");
+          const throttleKey = `self_enter_${region.id}`;
+
+          if (!isThrottled(throttleKey)) {
+            const title = "Wander Kedatangan";
+            const body = `Kamu telah sampai di ${region.name}! ${emoji}`;
+            
+            get().triggerLocalNotification(title, body, emoji);
+            get().addFeedItem(title, body, emoji);
+          }
           
-          get().triggerLocalNotification(
-            "Wander Kedatangan",
-            `Kamu telah sampai di ${placeName} Anda! ${emoji}`
-          );
-          
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
           return { ...region, isInside: true };
         } 
         
+        // Transition: EXIT (Departure)
         if (!insideNow && region.isInside) {
-          // EXIT geofence (Departure)
           stateChanged = true;
-          const emoji = region.type === "home" ? "🏡" : region.type === "work" ? "💼" : "🏫";
-          const placeName = region.type === "home" ? "Rumah" : region.type === "work" ? "Tempat Kerja" : "Sekolah";
-          
-          get().triggerLocalNotification(
-            "Wander Keberangkatan",
-            `Kamu telah meninggalkan ${placeName} Anda! ${emoji}`
-          );
+          const emoji = region.emoji || (region.type === "home" ? "🏡" : region.type === "work" ? "💼" : "🏫");
+          const throttleKey = `self_exit_${region.id}`;
 
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
+          if (!isThrottled(throttleKey)) {
+            const title = "Wander Keberangkatan";
+            const body = `Kamu telah meninggalkan ${region.name}! ${emoji}`;
+            
+            get().triggerLocalNotification(title, body, emoji);
+            get().addFeedItem(title, body, emoji);
+          }
+
           return { ...region, isInside: false };
         }
 
@@ -187,9 +254,119 @@ export const useGeofenceStore = create<GeofenceState>((set, get) => {
       }
     },
 
-    triggerLocalNotification: async (title, body) => {
+    evaluateFriendProximity: (myLat, myLng, friends) => {
+      if (!get().isProximityEnabled) return;
+
+      const threshold = get().nearbyFriendThresholdMeters;
+      
+      friends.forEach((friend) => {
+        if (!friend.latitude || !friend.longitude) return;
+
+        const distMeters = calculateDistance(myLat, myLng, friend.latitude, friend.longitude) * 1000;
+        const isNearbyNow = distMeters <= threshold;
+
+        const throttleKey = `friend_prox_${friend.uid}`;
+        const previousNearby = throttleMap.has(`${throttleKey}_state`)
+          ? throttleMap.get(`${throttleKey}_state`) === 1
+          : false;
+
+        if (isNearbyNow && !previousNearby) {
+          // Transition into nearby zone
+          throttleMap.set(`${throttleKey}_state`, 1);
+
+          // Throttled notification delivery (cooldown: 15 minutes per friend)
+          const notifyThrottleKey = `friend_prox_notify_${friend.uid}`;
+          if (!isThrottled(notifyThrottleKey, 15 * 60 * 1000)) {
+            const displayName = friend.displayName || "Teman";
+            const emoji = friend.avatarEmoji || "🦊";
+            const distanceText = distMeters < 1000
+              ? `${Math.round(distMeters)} m`
+              : `${(distMeters / 1000).toFixed(1)} km`;
+            
+            const title = "Teman Dekat!";
+            const body = `${displayName} berada dekat denganmu (${distanceText})! 🤝`;
+            
+            get().triggerLocalNotification(title, body, "🤝");
+            get().addFeedItem(title, body, emoji);
+          }
+        } else if (!isNearbyNow && previousNearby) {
+          // Transition out of nearby zone
+          throttleMap.set(`${throttleKey}_state`, 0);
+        }
+      });
+    },
+
+    evaluateFriendActivityChange: (friendUid, displayName, newActivity) => {
+      if (!get().isActivityEnabled) return;
+
+      const activityKey = `friend_act_${friendUid}`;
+      const previousActivity = throttleMap.get(activityKey) as string | undefined;
+
+      // Register without notification on initial load
+      if (previousActivity === undefined) {
+        throttleMap.set(activityKey, newActivity);
+        return;
+      }
+
+      if (newActivity !== previousActivity && newActivity !== "online") {
+        throttleMap.set(activityKey, newActivity);
+
+        // Throttle activity changes (cooldown: 15 minutes per friend per activity)
+        const notifyThrottleKey = `friend_act_notify_${friendUid}_${newActivity}`;
+        if (!isThrottled(notifyThrottleKey, 15 * 60 * 1000)) {
+          let activityText = "";
+          let emoji = "⚡";
+
+          switch (newActivity) {
+            case "driving":
+              activityText = "mulai berkendara";
+              emoji = "🚗";
+              break;
+            case "sleeping":
+              activityText = "sedang tidur";
+              emoji = "😴";
+              break;
+            case "walking":
+              activityText = "sedang berjalan kaki";
+              emoji = "🚶";
+              break;
+            case "idle":
+              activityText = "sedang santai (idle)";
+              emoji = "⏳";
+              break;
+            default:
+              return; // skip generic online transitions to avoid clutter
+          }
+
+          const title = "Aktivitas Teman";
+          const body = `${displayName} ${activityText}! ${emoji}`;
+
+          get().triggerLocalNotification(title, body, emoji);
+          get().addFeedItem(title, body, emoji);
+        }
+      }
+    },
+
+    triggerLocalNotification: async (title, body, emoji = "🔔") => {
+      // 1. Trigger foreground listener
+      if (uiNotificationListener) {
+        try {
+          uiNotificationListener(title, body, emoji);
+        } catch (e) {
+          console.warn("Foreground UI listener failed:", e);
+        }
+      }
+
+      // 2. Play selection or warning haptics
+      if (title.includes("Keberangkatan") || title.includes("Pergi")) {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
+      } else {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      }
+
+      // 3. Trigger OS System Notification
       if (Platform.OS === "web") {
-        console.log(`🔔 WEB NOTIFICATION: [${title}] ${body}`);
+        console.log(`🔔 [Wander Web Notif]: [${title}] ${body}`);
         return;
       }
       try {
@@ -203,7 +380,73 @@ export const useGeofenceStore = create<GeofenceState>((set, get) => {
           trigger: null, // trigger immediately
         });
       } catch (err) {
-        console.error("Gagal mengirim notifikasi:", err);
+        console.error("Gagal mengirim notifikasi OS:", err);
+      }
+    },
+
+    setNotificationListener: (listener) => {
+      uiNotificationListener = listener;
+    },
+
+    removeNotificationListener: () => {
+      uiNotificationListener = null;
+    },
+
+    addSavedPlaceAction: async (uid, place) => {
+      await geofenceService.savePlace(uid, place);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+    },
+
+    deleteSavedPlaceAction: async (uid, placeId) => {
+      await geofenceService.deletePlace(uid, placeId);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
+    },
+
+    clearNotificationsFeed: async () => {
+      set({ notificationsFeed: [] });
+      const currentUser = auth?.currentUser;
+      if (currentUser) {
+        AsyncStorage.removeItem(`wander_feed_${currentUser.uid}`).catch(() => {});
+      }
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    },
+
+    markNotificationsAsRead: () => {
+      const updatedFeed = get().notificationsFeed.map((n) => ({ ...n, read: true }));
+      set({ notificationsFeed: updatedFeed });
+      const currentUser = auth?.currentUser;
+      if (currentUser) {
+        AsyncStorage.setItem(`wander_feed_${currentUser.uid}`, JSON.stringify(updatedFeed)).catch(() => {});
+      }
+    },
+
+    toggleSetting: (key) => {
+      Haptics.selectionAsync().catch(() => {});
+      if (key === "notifications") {
+        set({ isNotificationsEnabled: !get().isNotificationsEnabled });
+      } else if (key === "proximity") {
+        set({ isProximityEnabled: !get().isProximityEnabled });
+      } else if (key === "activity") {
+        set({ isActivityEnabled: !get().isActivityEnabled });
+      }
+    },
+
+    addFeedItem: (title, body, emoji) => {
+      const nowStr = new Date().toISOString();
+      const newItem: ActivityNotification = {
+        id: Math.random().toString(36).substring(2, 9),
+        title,
+        body,
+        emoji,
+        timestamp: nowStr,
+        read: false,
+      };
+      const updatedFeed = [newItem, ...get().notificationsFeed].slice(0, 50);
+      set({ notificationsFeed: updatedFeed });
+
+      const currentUser = auth?.currentUser;
+      if (currentUser) {
+        AsyncStorage.setItem(`wander_feed_${currentUser.uid}`, JSON.stringify(updatedFeed)).catch(() => {});
       }
     },
   };

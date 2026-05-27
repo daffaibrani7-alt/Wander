@@ -1,4 +1,4 @@
-import React from "react";
+import React, { memo } from "react";
 import { StyleSheet, Text, View, Pressable, ScrollView, Platform } from "react-native";
 import { BlurView } from "expo-blur";
 import { COLORS } from "../theme/colors";
@@ -12,44 +12,140 @@ interface FriendCarouselProps {
   isDark: boolean;
 }
 
-export function FriendCarousel({
+// ─── Pure helpers (defined outside component — never recreated) ────────────────
+
+function getGlowColor(friend: FriendLocation, activity?: string): string {
+  if (friend.ghostMode === "frozen") return "#8A3FFC";
+  if (friend.ghostMode === "blurry") return "#FF5B99";
+  if (activity === "driving") return "#FF8A00";
+  if (activity === "sleeping") return "#8A3FFC";
+  return "#2BE080";
+}
+
+function getActivityEmoji(friend: FriendLocation, activity?: string): string {
+  if (friend.geofence === "home") return "🏡";
+  if (friend.geofence === "work") return "💼";
+  if (friend.geofence === "school") return "🏫";
+  if (activity === "driving") return "🚗";
+  if (activity === "sleeping") return "😴";
+  if (activity === "idle") return "⏳";
+  return "🟢";
+}
+
+function getActivityText(friend: FriendLocation, activity?: string): string {
+  if (friend.geofence === "home") return "Rumah";
+  if (friend.geofence === "work") return "Kantor";
+  if (friend.geofence === "school") return "Sekolah";
+  if (activity === "driving") return "Menyetir";
+  if (activity === "sleeping") return "Tidur";
+  if (activity === "idle") return "Diam";
+  return "Aktif";
+}
+
+// ─── Individual card — only re-renders when this friend's data changes ─────────
+
+interface FriendCardProps {
+  friend: FriendLocation;
+  isSelected: boolean;
+  isDark: boolean;
+  activity?: string;
+  onPress: () => void;
+}
+
+function FriendCardComponent({ friend, isSelected, isDark, activity, onPress }: FriendCardProps) {
+  const glowColor = getGlowColor(friend, activity);
+  const emoji = getActivityEmoji(friend, activity);
+  const activityText = getActivityText(friend, activity);
+
+  const cardContent = (
+    <>
+      <View style={[styles.avatarRing, { borderColor: glowColor }]}>
+        <Text style={styles.avatarEmoji}>{friend.avatarEmoji}</Text>
+        <View style={[styles.badge, { backgroundColor: glowColor }]}>
+          <Text style={styles.badgeEmoji}>{emoji}</Text>
+        </View>
+      </View>
+      <Text
+        style={[styles.friendName, { color: isDark ? "#FFF" : "#000" }]}
+        numberOfLines={1}
+      >
+        {friend.displayName}
+      </Text>
+      <Text
+        style={[styles.activityText, { color: isDark ? "rgba(255,255,255,0.6)" : "rgba(0,0,0,0.5)" }]}
+        numberOfLines={1}
+      >
+        {activityText}
+      </Text>
+    </>
+  );
+
+  return (
+    <Pressable
+      key={friend.uid}
+      id={`carousel-friend-${friend.uid}`}
+      onPress={onPress}
+      style={styles.cardContainer}
+    >
+      {Platform.OS === "web" ? (
+        <View
+          style={[
+            styles.card,
+            {
+              backgroundColor: isDark ? "rgba(18, 18, 24, 0.88)" : "rgba(255, 255, 255, 0.92)",
+              borderColor: isSelected ? COLORS.cyan : "rgba(255, 255, 255, 0.1)",
+              shadowColor: isSelected ? COLORS.cyan : "#000",
+            },
+          ]}
+        >
+          {cardContent}
+        </View>
+      ) : (
+        <BlurView
+          intensity={75}
+          tint={isDark ? "dark" : "light"}
+          style={[
+            styles.card,
+            {
+              borderColor: isSelected ? COLORS.cyan : "rgba(255, 255, 255, 0.15)",
+              shadowColor: isSelected ? COLORS.cyan : "#000",
+              shadowRadius: isSelected ? 8 : 4,
+              shadowOpacity: isSelected ? 0.35 : 0.12,
+            },
+          ]}
+        >
+          {cardContent}
+        </BlurView>
+      )}
+    </Pressable>
+  );
+}
+
+// Custom equality: only re-render if selection, appearance, or activity changed
+const FriendCard = memo(FriendCardComponent, (prev, next) => {
+  return (
+    prev.isSelected === next.isSelected &&
+    prev.isDark === next.isDark &&
+    prev.activity === next.activity &&
+    prev.friend.uid === next.friend.uid &&
+    prev.friend.ghostMode === next.friend.ghostMode &&
+    prev.friend.geofence === next.friend.geofence &&
+    prev.friend.avatarEmoji === next.friend.avatarEmoji &&
+    prev.friend.displayName === next.friend.displayName
+  );
+});
+
+// ─── Carousel container ────────────────────────────────────────────────────────
+
+function FriendCarouselComponent({
   friends,
   selectedFriendUid,
   onFriendSelect,
   isDark,
 }: FriendCarouselProps) {
+  // Subscribe with a granular selector so we only re-render when the whole
+  // presences map is swapped, not on unrelated store field changes
   const friendPresences = usePresenceStore((s) => s.friendPresences);
-
-  const getGlowColor = (friend: FriendLocation) => {
-    if (friend.ghostMode === "frozen") return "#8A3FFC";
-    if (friend.ghostMode === "blurry") return "#FF5B99";
-    const activity = friendPresences[friend.uid]?.activity || friend.activity;
-    if (activity === "driving") return "#FF8A00";
-    if (activity === "sleeping") return "#8A3FFC";
-    return "#2BE080"; // Neon Green for active/online
-  };
-
-  const getActivityEmoji = (friend: FriendLocation) => {
-    if (friend.geofence === "home") return "🏡";
-    if (friend.geofence === "work") return "💼";
-    if (friend.geofence === "school") return "🏫";
-    const activity = friendPresences[friend.uid]?.activity || friend.activity;
-    if (activity === "driving") return "🚗";
-    if (activity === "sleeping") return "😴";
-    if (activity === "idle") return "⏳";
-    return "🟢";
-  };
-
-  const getActivityText = (friend: FriendLocation) => {
-    if (friend.geofence === "home") return "Rumah";
-    if (friend.geofence === "work") return "Kantor";
-    if (friend.geofence === "school") return "Sekolah";
-    const activity = friendPresences[friend.uid]?.activity || friend.activity;
-    if (activity === "driving") return "Menyetir";
-    if (activity === "sleeping") return "Tidur";
-    if (activity === "idle") return "Diam";
-    return "Aktif";
-  };
 
   if (friends.length === 0) return null;
 
@@ -60,79 +156,35 @@ export function FriendCarousel({
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
         pointerEvents="auto"
+        removeClippedSubviews={Platform.OS !== "web"}
       >
         {friends.map((friend) => {
-          const isSelected = selectedFriendUid === friend.uid;
-          const glowColor = getGlowColor(friend);
-          const emoji = getActivityEmoji(friend);
-          const activityText = getActivityText(friend);
+          const presence = friendPresences[friend.uid];
+          const activity = presence?.activity || friend.activity;
 
           return (
-            <Pressable
+            <FriendCard
               key={friend.uid}
-              id={`carousel-friend-${friend.uid}`}
+              friend={friend}
+              isSelected={selectedFriendUid === friend.uid}
+              isDark={isDark}
+              activity={activity}
               onPress={() => onFriendSelect(friend)}
-              style={styles.cardContainer}
-            >
-              {Platform.OS === "web" ? (
-                <View
-                  style={[
-                    styles.card,
-                    {
-                      backgroundColor: isDark ? "rgba(18, 18, 24, 0.88)" : "rgba(255, 255, 255, 0.92)",
-                      borderColor: isSelected ? COLORS.cyan : "rgba(255, 255, 255, 0.1)",
-                      shadowColor: isSelected ? COLORS.cyan : "#000",
-                    },
-                  ]}
-                >
-                  <View style={[styles.avatarRing, { borderColor: glowColor }]}>
-                    <Text style={styles.avatarEmoji}>{friend.avatarEmoji}</Text>
-                    <View style={[styles.badge, { backgroundColor: glowColor }]}>
-                      <Text style={styles.badgeEmoji}>{emoji}</Text>
-                    </View>
-                  </View>
-                  <Text style={[styles.friendName, { color: isDark ? "#FFF" : "#000" }]} numberOfLines={1}>
-                    {friend.displayName}
-                  </Text>
-                  <Text style={[styles.activityText, { color: isDark ? "rgba(255,255,255,0.6)" : "rgba(0,0,0,0.5)" }]} numberOfLines={1}>
-                    {activityText}
-                  </Text>
-                </View>
-              ) : (
-                <BlurView
-                  intensity={75}
-                  tint={isDark ? "dark" : "light"}
-                  style={[
-                    styles.card,
-                    {
-                      borderColor: isSelected ? COLORS.cyan : "rgba(255, 255, 255, 0.15)",
-                      shadowColor: isSelected ? COLORS.cyan : "#000",
-                      shadowRadius: isSelected ? 8 : 4,
-                      shadowOpacity: isSelected ? 0.35 : 0.12,
-                    },
-                  ]}
-                >
-                  <View style={[styles.avatarRing, { borderColor: glowColor }]}>
-                    <Text style={styles.avatarEmoji}>{friend.avatarEmoji}</Text>
-                    <View style={[styles.badge, { backgroundColor: glowColor }]}>
-                      <Text style={styles.badgeEmoji}>{emoji}</Text>
-                    </View>
-                  </View>
-                  <Text style={[styles.friendName, { color: isDark ? "#FFF" : "#000" }]} numberOfLines={1}>
-                    {friend.displayName}
-                  </Text>
-                  <Text style={[styles.activityText, { color: isDark ? "rgba(255,255,255,0.6)" : "rgba(0,0,0,0.5)" }]} numberOfLines={1}>
-                    {activityText}
-                  </Text>
-                </BlurView>
-              )}
-            </Pressable>
+            />
           );
         })}
       </ScrollView>
     </View>
   );
 }
+
+export const FriendCarousel = memo(FriendCarouselComponent, (prev, next) => {
+  return (
+    prev.isDark === next.isDark &&
+    prev.selectedFriendUid === next.selectedFriendUid &&
+    prev.friends === next.friends // referential equality — home.tsx memoizes the list
+  );
+});
 
 const styles = StyleSheet.create({
   container: {

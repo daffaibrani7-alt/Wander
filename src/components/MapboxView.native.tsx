@@ -5,11 +5,13 @@
 import React, { useRef, useEffect, forwardRef, useImperativeHandle } from "react";
 import { View, StyleSheet, Animated, Easing, UIManager } from "react-native";
 import Reanimated, { useSharedValue, withSpring, useAnimatedProps } from "react-native-reanimated";
-import MapView, { Marker as RNMarker } from "react-native-maps";
+import MapView, { Marker as RNMarker, Polygon } from "react-native-maps";
 import Constants, { ExecutionEnvironment } from "expo-constants";
 import { COLORS } from "../theme/colors";
 import { MapMarker } from "./MapMarker";
 import { FriendLocation } from "../services/mockService";
+import { useExplorationStore, TILE_SIZE } from "../store/useExplorationStore";
+import { useGamificationStore } from "../store/useGamificationStore";
 
 export interface MapboxViewRef {
   flyTo: (coords: { latitude: number; longitude: number }, zoom?: number) => void;
@@ -32,6 +34,7 @@ export interface MapboxViewProps {
   userGeofence?: "home" | "work" | "school" | "cafe" | "custom" | null;
   followUser?: boolean;
   onMapPan?: () => void;
+  onMapPress?: (coords: { latitude: number; longitude: number }) => void;
   children?: React.ReactNode;
   style?: object;
 }
@@ -105,7 +108,7 @@ console.log(
   "\n=======================================================\n"
 );
 
-function AnimatedRadarFriend({
+function AnimatedRadarFriendComponent({
   friend,
   centerLatitude,
   centerLongitude,
@@ -116,6 +119,12 @@ function AnimatedRadarFriend({
 }) {
   const pan = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
   const isInitialRender = useRef(true);
+
+  // Stable isOnline — recomputed only when updatedAt changes, not on every render
+  const isOnline = React.useMemo(
+    () => Date.now() - new Date(friend.updatedAt).getTime() < 120000,
+    [friend.updatedAt]
+  );
 
   useEffect(() => {
     const latDiff = friend.latitude - centerLatitude;
@@ -165,11 +174,21 @@ function AnimatedRadarFriend({
         batteryLevel={friend.batteryLevel}
         isCharging={friend.isCharging}
         ghostMode={friend.ghostMode}
-        isOnline={Date.now() - new Date(friend.updatedAt).getTime() < 120000}
+        isOnline={isOnline}
       />
     </Animated.View>
   );
 }
+
+const AnimatedRadarFriend = React.memo(AnimatedRadarFriendComponent, (prev, next) =>
+  prev.friend.uid === next.friend.uid &&
+  prev.friend.latitude === next.friend.latitude &&
+  prev.friend.longitude === next.friend.longitude &&
+  prev.friend.batteryLevel === next.friend.batteryLevel &&
+  prev.friend.ghostMode === next.friend.ghostMode &&
+  prev.centerLatitude === next.centerLatitude &&
+  prev.centerLongitude === next.centerLongitude
+);
 
 // Beautiful custom HSL dark styling for Google Maps on Fallback MapView
 const DARK_MAP_STYLE = [
@@ -241,12 +260,18 @@ const LIGHT_MAP_STYLE = [
 
 const AnimatedRNMarker = Animated.createAnimatedComponent(RNMarker);
 
-function SmoothFallbackMarker({ friend }: { friend: FriendLocation }) {
+function SmoothFallbackMarkerComponent({ friend }: { friend: FriendLocation }) {
   const safeLat = typeof friend.latitude === "number" && !isNaN(friend.latitude) ? friend.latitude : -6.2088;
   const safeLng = typeof friend.longitude === "number" && !isNaN(friend.longitude) ? friend.longitude : 106.8456;
   const animatedLat = useRef(new Animated.Value(safeLat)).current;
   const animatedLon = useRef(new Animated.Value(safeLng)).current;
   const isInitial = useRef(true);
+
+  // Stable isOnline — recomputed only when updatedAt string changes
+  const isOnline = React.useMemo(
+    () => Date.now() - new Date(friend.updatedAt).getTime() < 120000,
+    [friend.updatedAt]
+  );
 
   useEffect(() => {
     if (isInitial.current) {
@@ -289,11 +314,23 @@ function SmoothFallbackMarker({ friend }: { friend: FriendLocation }) {
         ghostMode={friend.ghostMode}
         activity={friend.activity}
         geofence={friend.geofence}
-        isOnline={Date.now() - new Date(friend.updatedAt).getTime() < 120000}
+        isOnline={isOnline}
       />
     </AnimatedRNMarker>
   );
 }
+
+const SmoothFallbackMarker = React.memo(SmoothFallbackMarkerComponent, (prev, next) =>
+  prev.friend.uid === next.friend.uid &&
+  prev.friend.latitude === next.friend.latitude &&
+  prev.friend.longitude === next.friend.longitude &&
+  prev.friend.batteryLevel === next.friend.batteryLevel &&
+  prev.friend.isCharging === next.friend.isCharging &&
+  prev.friend.ghostMode === next.friend.ghostMode &&
+  prev.friend.activity === next.friend.activity &&
+  prev.friend.geofence === next.friend.geofence &&
+  prev.friend.updatedAt === next.friend.updatedAt
+);
 
 function FallbackMapView({
   isDark,
@@ -307,6 +344,7 @@ function FallbackMapView({
   userActivity = "online",
   userGeofence = null,
   mapRef,
+  onMapPress,
 }: {
   isDark: boolean;
   friends?: FriendLocation[];
@@ -323,8 +361,12 @@ function FallbackMapView({
   userActivity?: "online" | "idle" | "driving" | "sleeping" | "walking" | "traveling" | "home" | "work" | "school" | "cafe";
   userGeofence?: "home" | "work" | "school" | "cafe" | "custom" | null;
   mapRef: React.RefObject<MapView | null>;
+  onMapPress?: (coords: { latitude: number; longitude: number }) => void;
 }) {
   const isInitial = useRef(true);
+  const isExplorationActive = useExplorationStore((s) => s.isExplorationActive);
+  const exploredFrequencies = useGamificationStore((s) => s.exploredFrequencies);
+  const exploredTilesArray = useExplorationStore((s) => s.exploredTilesArray);
 
   const safeLat = typeof latitude === "number" && !isNaN(latitude) ? latitude : -6.2088;
   const safeLng = typeof longitude === "number" && !isNaN(longitude) ? longitude : 106.8456;
@@ -362,7 +404,7 @@ function FallbackMapView({
         heading: 0,
         altitude: 1000,
       }}
-      customMapStyle={isDark ? DARK_MAP_STYLE : LIGHT_MAP_STYLE}
+      customMapStyle={(isDark || isExplorationActive) ? DARK_MAP_STYLE : LIGHT_MAP_STYLE}
       showsUserLocation={false}
       showsMyLocationButton={false}
       showsCompass={false}
@@ -370,7 +412,54 @@ function FallbackMapView({
       rotateEnabled={true}
       zoomEnabled={true}
       scrollEnabled={true}
+      onPress={(e) => {
+        if (onMapPress) {
+          onMapPress(e.nativeEvent.coordinate);
+        }
+      }}
     >
+      {/* Exploration Visited Polygons Heatmap */}
+      {isExplorationActive &&
+        (Object.keys(exploredFrequencies).length > 0 ? Object.keys(exploredFrequencies) : exploredTilesArray).map((tileKey) => {
+          const [latIdxStr, lngIdxStr] = tileKey.split("_");
+          const latIdx = parseInt(latIdxStr, 10);
+          const lngIdx = parseInt(lngIdxStr, 10);
+
+          const minLat = latIdx * TILE_SIZE;
+          const minLng = lngIdx * TILE_SIZE;
+          const maxLat = (latIdx + 1) * TILE_SIZE;
+          const maxLng = (lngIdx + 1) * TILE_SIZE;
+
+          const coordinates = [
+            { latitude: minLat, longitude: minLng },
+            { latitude: maxLat, longitude: minLng },
+            { latitude: maxLat, longitude: maxLng },
+            { latitude: minLat, longitude: maxLng },
+          ];
+
+          const freq = exploredFrequencies[tileKey] || 1;
+          let strokeWidth = 1.0;
+          let fillColor = "rgba(46, 213, 115, 0.22)";
+
+          if (freq >= 2 && freq <= 4) {
+            strokeWidth = 1.8;
+            fillColor = "rgba(46, 213, 115, 0.48)";
+          } else if (freq >= 5) {
+            strokeWidth = 2.8;
+            fillColor = "rgba(46, 213, 115, 0.84)";
+          }
+
+          return (
+            <Polygon
+              key={tileKey}
+              coordinates={coordinates}
+              strokeColor="#2BE080"
+              strokeWidth={strokeWidth}
+              fillColor={fillColor}
+            />
+          );
+        })}
+
       {/* Render Me marker */}
       {typeof safeLat === "number" && typeof safeLng === "number" && (
         <RNMarker
@@ -401,10 +490,16 @@ function FallbackMapView({
   );
 }
 
-function AnimatedFriendMarker({ friend }: { friend: FriendLocation }) {
+function AnimatedFriendMarkerComponent({ friend }: { friend: FriendLocation }) {
   const lon = useSharedValue(friend.longitude);
   const lat = useSharedValue(friend.latitude);
   const isInitialRender = useRef(true);
+
+  // Stable isOnline — only recomputed when updatedAt changes
+  const isOnline = React.useMemo(
+    () => Date.now() - new Date(friend.updatedAt).getTime() < 120000,
+    [friend.updatedAt]
+  );
 
   useEffect(() => {
     if (isInitialRender.current) {
@@ -428,6 +523,7 @@ function AnimatedFriendMarker({ friend }: { friend: FriendLocation }) {
       id={`marker-${friend.uid}`}
       animatedProps={animatedProps}
       anchor={{ x: 0.5, y: 1.0 }}
+      allowOverlap
     >
       <MapMarker
         displayName={friend.displayName}
@@ -438,11 +534,23 @@ function AnimatedFriendMarker({ friend }: { friend: FriendLocation }) {
         ghostMode={friend.ghostMode}
         activity={friend.activity}
         geofence={friend.geofence}
-        isOnline={Date.now() - new Date(friend.updatedAt).getTime() < 120000}
+        isOnline={isOnline}
       />
     </AnimatedMarkerView>
   );
 }
+
+const AnimatedFriendMarker = React.memo(AnimatedFriendMarkerComponent, (prev, next) =>
+  prev.friend.uid === next.friend.uid &&
+  prev.friend.latitude === next.friend.latitude &&
+  prev.friend.longitude === next.friend.longitude &&
+  prev.friend.batteryLevel === next.friend.batteryLevel &&
+  prev.friend.isCharging === next.friend.isCharging &&
+  prev.friend.ghostMode === next.friend.ghostMode &&
+  prev.friend.activity === next.friend.activity &&
+  prev.friend.geofence === next.friend.geofence &&
+  prev.friend.updatedAt === next.friend.updatedAt
+);
 
 // ─── Mapbox Native View ────────────────────────────────────────────────────────
 const MapboxViewComponent = forwardRef<MapboxViewRef, MapboxViewProps>(
@@ -460,6 +568,7 @@ const MapboxViewComponent = forwardRef<MapboxViewRef, MapboxViewProps>(
       userGeofence = null,
       followUser = true,
       onMapPan,
+      onMapPress,
       children,
       style,
     },
@@ -504,6 +613,7 @@ const MapboxViewComponent = forwardRef<MapboxViewRef, MapboxViewProps>(
             userActivity={userActivity}
             userGeofence={userGeofence}
             mapRef={fallbackMapRef}
+            onMapPress={onMapPress}
           />
         </View>
       );
@@ -524,6 +634,12 @@ const MapboxViewComponent = forwardRef<MapboxViewRef, MapboxViewProps>(
           scaleBarEnabled={false}
           pitchEnabled
           rotateEnabled
+          onPress={(e: any) => {
+            if (onMapPress) {
+              const coords = e.geometry.coordinates;
+              onMapPress({ latitude: coords[1], longitude: coords[0] });
+            }
+          }}
           onCameraChanged={(state: any) => {
             // Jika perubahan kamera dipicu oleh gestur geser tangan pengguna,
             // matikan mode followUser otomatis agar tidak mental/snap kembali.
