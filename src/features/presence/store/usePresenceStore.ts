@@ -25,6 +25,7 @@ interface PresenceStoreState {
   // Actions
   setSelfPresenceAction: (status: "online" | "idle" | "offline") => Promise<void>;
   setSelfActivityAction: (activity: FriendActivityState["activity"]) => Promise<void>;
+  predictSelfActivityAction: (speed: number | null, batteryLevel: number, isCharging: boolean, geofence: string | null) => Promise<void>;
   listenToFriendsPresenceAndActivities: (friendUids: string[]) => () => void;
 }
 
@@ -81,6 +82,38 @@ export const usePresenceStore = create<PresenceStoreState>((set, get) => {
           console.error("Gagal sinkronisasi activity ke Firestore, enqueuing:", err);
           useSyncQueueStore.getState().enqueueSyncItem("ACTIVITY", currentUser.uid, activity).catch(() => {});
         }
+      }
+    },
+
+    predictSelfActivityAction: async (speed, batteryLevel, isCharging, geofence) => {
+      const hour = new Date().getHours();
+      let predicted: FriendActivityState["activity"] = "online";
+
+      // 1. Sleeping mode: Night time (11 PM to 6 AM) AND charging or stationary
+      const isNight = hour >= 23 || hour < 6;
+      if (isNight && (isCharging || (speed === null || speed === 0))) {
+        predicted = "sleeping";
+      }
+      // 2. Commuting / Driving mode
+      else if (speed !== null && speed > 4.17) {
+        const isRushHour = (hour >= 7 && hour <= 9) || (hour >= 17 && hour <= 19);
+        predicted = isRushHour ? "traveling" : "driving";
+      }
+      // 3. Walking mode
+      else if (speed !== null && speed > 0.8 && speed <= 4.17) {
+        predicted = "walking";
+      }
+      // 4. Geofence presence (home, work, school, cafe)
+      else if (geofence === "home" || geofence === "work" || geofence === "school" || geofence === "cafe") {
+        predicted = geofence;
+      }
+      // 5. Relaxing (stationary during day at home geofence or generic stationary)
+      else if (speed === 0) {
+        predicted = geofence === "home" ? "home" : "idle";
+      }
+
+      if (predicted !== get().selfActivity) {
+        await get().setSelfActivityAction(predicted);
       }
     },
 

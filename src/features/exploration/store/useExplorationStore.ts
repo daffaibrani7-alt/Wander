@@ -11,6 +11,7 @@ import { useNetworkStore } from "@/shared/store/useNetworkStore";
 import { useSyncQueueStore } from "@/shared/store/useSyncQueueStore";
 import { useAchievementStore } from "@/features/achievements/store/useAchievementStore";
 import { getStreakMultiplier } from "@/features/achievements/services/progressionEngine";
+import { WANDER_HAPTICS } from "@/shared/theme/haptics";
 
 // Bounding tile degree size (~30m x 30m grid)
 export const TILE_SIZE = 0.0003;
@@ -49,6 +50,7 @@ interface ExplorationStateStore {
 // Throttling database sync to Firestore (3 seconds cache window)
 let syncTimeout: any = null;
 let pendingTilesToWrite: string[] = [];
+let replayInterval: any = null;
 
 async function syncTilesToFirestoreThrottled(userId: string, tiles: string[]) {
   pendingTilesToWrite = [...new Set([...pendingTilesToWrite, ...tiles])];
@@ -107,14 +109,48 @@ export const useExplorationStore = create<ExplorationStateStore>((set, get) => {
     },
 
     startReplay: () => {
-      const { coordinateHistory } = get();
-      if (coordinateHistory.length < 2) return;
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-      set({ isReplaying: true, replayCoordinates: [...coordinateHistory] });
+      if (replayInterval) clearInterval(replayInterval);
+
+      let history = get().coordinateHistory;
+      if (history.length < 2) {
+        // Seed mock coordinates history for Jakarta demo
+        const now = Date.now();
+        history = [
+          { latitude: -6.2088, longitude: 106.8456, timestamp: now - 5000 },
+          { latitude: -6.2095, longitude: 106.8470, timestamp: now - 4000 },
+          { latitude: -6.2110, longitude: 106.8485, timestamp: now - 3000 },
+          { latitude: -6.2130, longitude: 106.8499, timestamp: now - 2000 },
+          { latitude: -6.2155, longitude: 106.8520, timestamp: now - 1000 },
+        ];
+        set({ coordinateHistory: history });
+      }
+
+      WANDER_HAPTICS.medium();
+      set({ isReplaying: true, replayCoordinates: [history[0]] });
+
+      let index = 1;
+      replayInterval = setInterval(() => {
+        const currentCoords = get().coordinateHistory;
+        if (index >= currentCoords.length) {
+          clearInterval(replayInterval);
+          replayInterval = null;
+          WANDER_HAPTICS.success();
+          return;
+        }
+
+        const nextPoint = currentCoords[index];
+        set({ replayCoordinates: [...get().replayCoordinates, nextPoint] });
+        WANDER_HAPTICS.tick(); // apple click tick
+        index++;
+      }, 350);
     },
 
     stopReplay: () => {
-      Haptics.selectionAsync().catch(() => {});
+      if (replayInterval) {
+        clearInterval(replayInterval);
+        replayInterval = null;
+      }
+      WANDER_HAPTICS.tick();
       set({ isReplaying: false, replayCoordinates: [] });
     },
 

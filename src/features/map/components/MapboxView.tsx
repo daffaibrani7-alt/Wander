@@ -588,24 +588,32 @@ const MapboxViewComponent = forwardRef<MapboxViewRef, MapboxViewProps>(
 
           if (paddedBounds.intersects(rectBounds)) {
             const freq = exploredFrequencies[tileKey] || 1;
+            const cosmetic = useGamificationStore.getState().equippedCosmetic;
             
-            let strokeColor = "#2BE080";
-            let fillColor = "#2BE080";
+            let baseColor = "#2BE080"; // neon_cyan (emerald glowing)
+            if (cosmetic === "sunset_orange") {
+              baseColor = "#FF8A00";
+            } else if (cosmetic === "cyber_purple") {
+              baseColor = "#8A3FFC";
+            }
+
+            let strokeColor = baseColor;
+            let fillColor = baseColor;
             let opacity = 0.55;
             let fillOpacity = 0.22;
             let weight = 1.0;
             let cellClass = "unlocked-grid-cell-cold";
 
             if (freq >= 2 && freq <= 4) {
-              strokeColor = "#2BE080";
-              fillColor = "#2BE080";
+              strokeColor = baseColor;
+              fillColor = baseColor;
               opacity = 0.75;
               fillOpacity = 0.48;
               weight = 1.8;
               cellClass = "unlocked-grid-cell-warm";
             } else if (freq >= 5) {
-              strokeColor = "#2BE080";
-              fillColor = "#2BE080";
+              strokeColor = baseColor;
+              fillColor = baseColor;
               opacity = 0.95;
               fillOpacity = 0.84;
               weight = 2.8;
@@ -705,8 +713,12 @@ const MapboxViewComponent = forwardRef<MapboxViewRef, MapboxViewProps>(
       }).addTo(mapRef.current);
       replayLayersRef.current.push(beacon);
 
-      // Fly to replay path
-      mapRef.current.fitBounds(polyline.getBounds(), { padding: [60, 60], animate: true, duration: 1.0 });
+      // Fly to replay path - fit bounds on start, panTo on increment updates
+      if (replayCoordinates.length <= 2) {
+        mapRef.current.setView([headCoord.latitude, headCoord.longitude], 16, { animate: true, duration: 0.8 });
+      } else {
+        mapRef.current.panTo([headCoord.latitude, headCoord.longitude], { animate: true, duration: 0.35 });
+      }
 
       return () => {
         replayLayersRef.current.forEach((layer) => layer.remove());

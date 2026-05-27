@@ -634,6 +634,24 @@ function FallbackMapView({
     );
   }, [safeLat, safeLng]);
 
+  // Cinematic camera follow during replay in fallback map!
+  useEffect(() => {
+    if (!isReplaying || replayCoordinates.length === 0) return;
+    const headCoord = replayCoordinates[replayCoordinates.length - 1];
+    
+    mapRef.current?.animateCamera(
+      {
+        center: {
+          latitude: headCoord.latitude,
+          longitude: headCoord.longitude,
+        },
+        zoom: 16,
+        pitch: 45, // Tilted perspective
+      },
+      { duration: 350 }
+    );
+  }, [isReplaying, replayCoordinates]);
+
   return (
     <MapView
       ref={mapRef}
@@ -683,22 +701,34 @@ function FallbackMapView({
           ];
 
           const freq = exploredFrequencies[tileKey] || 1;
+          const cosmetic = useGamificationStore.getState().equippedCosmetic;
+          
+          let baseHex = "#2BE080"; // neon_cyan (emerald glowing)
+          let baseRgb = "43, 224, 128";
+          if (cosmetic === "sunset_orange") {
+            baseHex = "#FF8A00";
+            baseRgb = "255, 138, 0";
+          } else if (cosmetic === "cyber_purple") {
+            baseHex = "#8A3FFC";
+            baseRgb = "138, 63, 252";
+          }
+
           let strokeWidth = 1.0;
-          let fillColor = "rgba(46, 213, 115, 0.22)";
+          let fillColor = `rgba(${baseRgb}, 0.22)`;
 
           if (freq >= 2 && freq <= 4) {
             strokeWidth = 1.8;
-            fillColor = "rgba(46, 213, 115, 0.48)";
+            fillColor = `rgba(${baseRgb}, 0.48)`;
           } else if (freq >= 5) {
             strokeWidth = 2.8;
-            fillColor = "rgba(46, 213, 115, 0.84)";
+            fillColor = `rgba(${baseRgb}, 0.84)`;
           }
 
           return (
             <Polygon
               key={tileKey}
               coordinates={coordinates}
-              strokeColor="#2BE080"
+              strokeColor={baseHex}
               strokeWidth={strokeWidth}
               fillColor={fillColor}
             />

@@ -1,13 +1,15 @@
 import React from "react";
 import { Tabs } from "expo-router";
-import { Compass, Users, User } from "lucide-react-native";
+import { Compass, Users, User, MessageCircle } from "lucide-react-native";
 import { Platform, StyleSheet } from "react-native";
 import { useThemeStore } from "@/features/settings/store/useThemeStore";
+import { useChatStore } from "@/features/chat/store/useChatStore";
 import { COLORS } from "@/shared/theme/colors";
 
 export default function TabLayout() {
   const isDark = useThemeStore((state) => state.isDark);
   const theme = COLORS.get(isDark);
+  const totalUnreadCount = useChatStore((state) => state.totalUnreadCount);
 
   return (
     <Tabs
@@ -29,21 +31,30 @@ export default function TabLayout() {
         name="home"
         options={{
           title: "Radar",
-          tabBarIcon: ({ color, size }) => <Compass size={22} color={color} strokeWidth={2} />,
+          tabBarIcon: ({ color }) => <Compass size={22} color={color} strokeWidth={2} />,
         }}
       />
       <Tabs.Screen
         name="friends"
         options={{
           title: "Teman",
-          tabBarIcon: ({ color, size }) => <Users size={22} color={color} strokeWidth={2} />,
+          tabBarIcon: ({ color }) => <Users size={22} color={color} strokeWidth={2} />,
+        }}
+      />
+      <Tabs.Screen
+        name="chat"
+        options={{
+          title: "Chat",
+          tabBarIcon: ({ color }) => <MessageCircle size={22} color={color} strokeWidth={2} />,
+          tabBarBadge: totalUnreadCount > 0 ? totalUnreadCount : undefined,
+          tabBarBadgeStyle: styles.chatBadge,
         }}
       />
       <Tabs.Screen
         name="profile"
         options={{
           title: "Profil",
-          tabBarIcon: ({ color, size }) => <User size={22} color={color} strokeWidth={2} />,
+          tabBarIcon: ({ color }) => <User size={22} color={color} strokeWidth={2} />,
         }}
       />
     </Tabs>
@@ -78,5 +89,13 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     marginTop: 4,
     fontFamily: "System",
+  },
+  chatBadge: {
+    backgroundColor: "#FF5B99",
+    fontSize: 10,
+    fontWeight: "700",
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
   },
 });

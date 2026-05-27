@@ -22,6 +22,8 @@ interface GamificationStateStore {
   totalDistance: number;
   dailyExploredCount: Record<string, number>;
   leaderboard: LeaderboardEntry[];
+  equippedCosmetic: "neon_cyan" | "sunset_orange" | "cyber_purple";
+  unlockedCosmetics: string[];
 
   // Actions
   toggleDashboard: () => void;
@@ -29,6 +31,8 @@ interface GamificationStateStore {
   incrementTileFrequency: (tileKey: string) => void;
   unlockBadgeAction: (badgeId: string, badgeName: string) => void;
   addDistanceAction: (km: number) => void;
+  equipCosmeticAction: (cosmetic: "neon_cyan" | "sunset_orange" | "cyber_purple") => void;
+  unlockCosmeticAction: (cosmetic: string) => void;
   initializeGamificationStore: (userId: string) => () => void;
   resetGamificationData: (userId: string) => Promise<void>;
 }
@@ -49,6 +53,8 @@ async function syncGamificationToFirestore(userId: string, state: any) {
       totalDistance: state.totalDistance,
       exploredFrequencies: state.exploredFrequencies,
       dailyExploredCount: state.dailyExploredCount,
+      equippedCosmetic: state.equippedCosmetic,
+      unlockedCosmetics: state.unlockedCosmetics,
     };
 
     if (!isOnline) {
@@ -81,6 +87,21 @@ const INITIAL_LEADERBOARD: LeaderboardEntry[] = [
 ];
 
 export const useGamificationStore = create<GamificationStateStore>((set, get) => {
+  const saveStateAndSync = (userId: string, updatedFields: any = {}) => {
+    const payload = {
+      unlockedBadges: get().unlockedBadges,
+      streakCount: get().streakCount,
+      totalDistance: get().totalDistance,
+      exploredFrequencies: get().exploredFrequencies,
+      dailyExploredCount: get().dailyExploredCount,
+      equippedCosmetic: get().equippedCosmetic,
+      unlockedCosmetics: get().unlockedCosmetics,
+      ...updatedFields,
+    };
+    AsyncStorage.setItem(`wander_gamification_${userId}`, JSON.stringify(payload)).catch(() => {});
+    syncGamificationToFirestore(userId, payload);
+  };
+
   return {
     isDashboardActive: false,
     exploredFrequencies: {},
@@ -89,6 +110,8 @@ export const useGamificationStore = create<GamificationStateStore>((set, get) =>
     totalDistance: 0.8, // Default initial explored distance
     dailyExploredCount: {},
     leaderboard: INITIAL_LEADERBOARD,
+    equippedCosmetic: "neon_cyan",
+    unlockedCosmetics: ["neon_cyan"],
 
     toggleDashboard: () => {
       Haptics.selectionAsync().catch(() => {});
@@ -134,15 +157,10 @@ export const useGamificationStore = create<GamificationStateStore>((set, get) =>
       // Cache locally and sync
       const currentUser = auth?.currentUser;
       if (currentUser) {
-        const statePayload = {
-          unlockedBadges: get().unlockedBadges,
-          streakCount: get().streakCount,
-          totalDistance: get().totalDistance,
+        saveStateAndSync(currentUser.uid, {
           exploredFrequencies: frequencies,
           dailyExploredCount: dailyCount,
-        };
-        AsyncStorage.setItem(`wander_gamification_${currentUser.uid}`, JSON.stringify(statePayload)).catch(() => {});
-        syncGamificationToFirestore(currentUser.uid, statePayload);
+        });
       }
     },
 
@@ -158,15 +176,7 @@ export const useGamificationStore = create<GamificationStateStore>((set, get) =>
 
       const currentUser = auth?.currentUser;
       if (currentUser) {
-        const statePayload = {
-          unlockedBadges: updated,
-          streakCount: get().streakCount,
-          totalDistance: get().totalDistance,
-          exploredFrequencies: get().exploredFrequencies,
-          dailyExploredCount: get().dailyExploredCount,
-        };
-        AsyncStorage.setItem(`wander_gamification_${currentUser.uid}`, JSON.stringify(statePayload)).catch(() => {});
-        syncGamificationToFirestore(currentUser.uid, statePayload);
+        saveStateAndSync(currentUser.uid, { unlockedBadges: updated });
       }
     },
 
@@ -176,15 +186,30 @@ export const useGamificationStore = create<GamificationStateStore>((set, get) =>
 
       const currentUser = auth?.currentUser;
       if (currentUser) {
-        const statePayload = {
-          unlockedBadges: get().unlockedBadges,
-          streakCount: get().streakCount,
-          totalDistance: nextDistance,
-          exploredFrequencies: get().exploredFrequencies,
-          dailyExploredCount: get().dailyExploredCount,
-        };
-        AsyncStorage.setItem(`wander_gamification_${currentUser.uid}`, JSON.stringify(statePayload)).catch(() => {});
-        syncGamificationToFirestore(currentUser.uid, statePayload);
+        saveStateAndSync(currentUser.uid, { totalDistance: nextDistance });
+      }
+    },
+
+    equipCosmeticAction: (cosmetic) => {
+      set({ equippedCosmetic: cosmetic });
+      Haptics.selectionAsync().catch(() => {});
+      const currentUser = auth?.currentUser;
+      if (currentUser) {
+        saveStateAndSync(currentUser.uid, { equippedCosmetic: cosmetic });
+      }
+    },
+
+    unlockCosmeticAction: (cosmetic) => {
+      const current = get().unlockedCosmetics;
+      if (current.includes(cosmetic)) return;
+      
+      const updated = [...current, cosmetic];
+      set({ unlockedCosmetics: updated });
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+
+      const currentUser = auth?.currentUser;
+      if (currentUser) {
+        saveStateAndSync(currentUser.uid, { unlockedCosmetics: updated });
       }
     },
 
@@ -219,6 +244,8 @@ export const useGamificationStore = create<GamificationStateStore>((set, get) =>
             totalDistance: typeof state.totalDistance === "number" ? state.totalDistance : 0.8,
             dailyExploredCount: state.dailyExploredCount || {},
             leaderboard: rankedLeaderboard,
+            equippedCosmetic: state.equippedCosmetic || "neon_cyan",
+            unlockedCosmetics: state.unlockedCosmetics || ["neon_cyan"],
           });
           console.log("📦 Loaded gamification stats from AsyncStorage.");
         } catch (e) {
@@ -259,6 +286,8 @@ export const useGamificationStore = create<GamificationStateStore>((set, get) =>
             totalDistance: typeof data.totalDistance === "number" ? data.totalDistance : 0.8,
             dailyExploredCount: data.dailyExploredCount || {},
             leaderboard: rankedLeaderboard,
+            equippedCosmetic: data.equippedCosmetic || "neon_cyan",
+            unlockedCosmetics: data.unlockedCosmetics || ["neon_cyan"],
           });
 
           // Sync back to local storage
@@ -284,6 +313,8 @@ export const useGamificationStore = create<GamificationStateStore>((set, get) =>
           totalDistance: 0,
           dailyExploredCount: {},
           leaderboard: INITIAL_LEADERBOARD,
+          equippedCosmetic: "neon_cyan",
+          unlockedCosmetics: ["neon_cyan"],
         });
 
         if (isFirebaseConfigured && db) {
@@ -295,6 +326,8 @@ export const useGamificationStore = create<GamificationStateStore>((set, get) =>
             totalDistance: 0,
             exploredFrequencies: {},
             dailyExploredCount: {},
+            equippedCosmetic: "neon_cyan",
+            unlockedCosmetics: ["neon_cyan"],
             updatedAt: new Date().toISOString(),
           });
         }

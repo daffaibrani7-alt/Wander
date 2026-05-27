@@ -64,6 +64,14 @@ import { useAchievementStore } from "@/features/achievements/store/useAchievemen
 import { AchievementUnlockPopup } from "@/features/achievements/components/AchievementUnlockPopup";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
+// Premium imports
+import { MemoryCardCarousel } from "@/features/exploration/components/MemoryCardCarousel";
+import { SocialOnboardingWalkthrough } from "@/shared/components/SocialOnboardingWalkthrough";
+import { PerformanceInspector } from "@/shared/components/PerformanceInspector";
+import { usePrivacyStore } from "@/shared/store/usePrivacyStore";
+import { useNotificationStore } from "@/features/notifications/store/useNotificationStore";
+import { WANDER_HAPTICS } from "@/shared/theme/haptics";
+
 const CONSENT_KEY = "wander_location_consent";
 
 
@@ -116,6 +124,7 @@ export default function HomeMapScreen() {
   const [showNotifCenter, setShowNotifCenter] = useState(false);
   const [isMapPickMode, setMapPickMode] = useState(false);
   const [pickedCoords, setPickedCoords] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [showOnboarding, setShowOnboarding] = useState(false);
 
   const notificationsFeed = useGeofenceStore((s) => s.notificationsFeed);
   const unreadCount = useMemo(() => notificationsFeed.filter((n) => !n.read).length, [notificationsFeed]);
@@ -317,7 +326,21 @@ export default function HomeMapScreen() {
         setTimeout(() => setShowConsentModal(true), 800);
       }
     }).catch(() => {});
+
+    // Check onboarding completed state
+    AsyncStorage.getItem("wander_onboarding_completed").then((val) => {
+      if (!val) {
+        setShowOnboarding(true);
+      }
+    }).catch(() => {});
   }, []);
+
+  // Initialize privacy store on user change
+  useEffect(() => {
+    if (userProfile?.uid) {
+      usePrivacyStore.getState().initializePrivacyStore(userProfile.uid);
+    }
+  }, [userProfile?.uid]);
 
   // Replay HUD spring in/out
   useEffect(() => {
@@ -1258,7 +1281,13 @@ export default function HomeMapScreen() {
           </GlassCard>
         </Animated.View>
       )}
-
+      {/* ── Premium Spatial Memories Carousel ── */}
+      {!selectedFriend && (
+        <MemoryCardCarousel
+          isDark={isDark}
+          onRevisitMemory={(coords) => mapRef.current?.flyTo(coords, 16)}
+        />
+      )}
 
       {/* ── Premium Friend Carousel ── */}
       {!selectedFriend && (
@@ -1269,6 +1298,17 @@ export default function HomeMapScreen() {
           isDark={isDark}
         />
       )}
+
+      {/* ── Social Onboarding Wizard Walkthrough ── */}
+      {showOnboarding && (
+        <SocialOnboardingWalkthrough
+          isDark={isDark}
+          onComplete={() => setShowOnboarding(false)}
+        />
+      )}
+
+      {/* ── Developer Diagnostic Overlay Panel ── */}
+      <PerformanceInspector isDark={isDark} />
     </View>
   );
 }
