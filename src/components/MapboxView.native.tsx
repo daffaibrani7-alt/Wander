@@ -5,12 +5,12 @@
 import React, { useRef, useEffect, useState, forwardRef, useImperativeHandle } from "react";
 import { View, StyleSheet, Animated, Easing, UIManager, Text, Pressable } from "react-native";
 import Reanimated, { useSharedValue, withSpring, useAnimatedProps } from "react-native-reanimated";
-import MapView, { Marker as RNMarker, Polygon } from "react-native-maps";
+import MapView, { Marker as RNMarker, Polygon, Polyline } from "react-native-maps";
 import Constants, { ExecutionEnvironment } from "expo-constants";
 import { COLORS } from "../theme/colors";
 import { MapMarker } from "./MapMarker";
 import { FriendLocation } from "../services/mockService";
-import { useExplorationStore, TILE_SIZE } from "../store/useExplorationStore";
+import { useExplorationStore, TILE_SIZE, ReplayCoordinate } from "../store/useExplorationStore";
 import { useGamificationStore } from "../store/useGamificationStore";
 import { getClusteredNodes, ClusterNode } from "../utils/clustering";
 import * as Haptics from "expo-haptics";
@@ -461,6 +461,71 @@ const clusterStyles = StyleSheet.create({
   },
 });
 
+// ─── Replay Beacon — animated pulsing dot ──────────────────────────────────
+function ReplayBeacon() {
+  const pulseAnim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, { toValue: 1, duration: 900, useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 0, duration: 0, useNativeDriver: true }),
+      ])
+    ).start();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return (
+    <View style={replayStyles.beaconWrap}>
+      <Animated.View
+        style={[
+          replayStyles.beaconRing,
+          {
+            transform: [{ scale: pulseAnim.interpolate({ inputRange: [0, 1], outputRange: [0.6, 2.4] }) }],
+            opacity: pulseAnim.interpolate({ inputRange: [0, 0.5, 1], outputRange: [0.7, 0.3, 0] }),
+          },
+        ]}
+      />
+      <View style={replayStyles.beaconDot} />
+    </View>
+  );
+}
+
+const replayStyles = StyleSheet.create({
+  beaconWrap: {
+    width: 22,
+    height: 22,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  beaconRing: {
+    position: "absolute",
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: "rgba(138, 63, 252, 0.4)",
+  },
+  beaconDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: "#8A3FFC",
+    borderWidth: 2,
+    borderColor: "#fff",
+    shadowColor: "#8A3FFC",
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.8,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  startDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: "#2BE080",
+    borderWidth: 2,
+    borderColor: "#fff",
+  },
+});
+
 function FallbackMapView({
   isDark,
   friends,
@@ -496,6 +561,8 @@ function FallbackMapView({
   const isExplorationActive = useExplorationStore((s) => s.isExplorationActive);
   const exploredFrequencies = useGamificationStore((s) => s.exploredFrequencies);
   const exploredTilesArray = useExplorationStore((s) => s.exploredTilesArray);
+  const isReplaying = useExplorationStore((s) => s.isReplaying);
+  const replayCoordinates = useExplorationStore((s) => s.replayCoordinates);
 
   const [zoomLevel, setZoomLevel] = useState(14);
 
@@ -597,6 +664,41 @@ function FallbackMapView({
             />
           );
         })}
+
+      {/* Journey Replay Polyline + Pulsing Beacon */}
+      {isReplaying && replayCoordinates.length >= 2 && (
+        <>
+          {/* Start dot */}
+          <RNMarker
+            coordinate={{ latitude: replayCoordinates[0].latitude, longitude: replayCoordinates[0].longitude }}
+            anchor={{ x: 0.5, y: 0.5 }}
+            tracksViewChanges={false}
+          >
+            <View style={replayStyles.startDot} />
+          </RNMarker>
+
+          {/* Purple glowing polyline path */}
+          <Polyline
+            coordinates={replayCoordinates.map((c: ReplayCoordinate) => ({ latitude: c.latitude, longitude: c.longitude }))}
+            strokeColor="#8A3FFC"
+            strokeWidth={4}
+            lineCap="round"
+            lineJoin="round"
+          />
+
+          {/* Pulsing beacon head */}
+          <RNMarker
+            coordinate={{
+              latitude: replayCoordinates[replayCoordinates.length - 1].latitude,
+              longitude: replayCoordinates[replayCoordinates.length - 1].longitude,
+            }}
+            anchor={{ x: 0.5, y: 0.5 }}
+            tracksViewChanges={false}
+          >
+            <ReplayBeacon />
+          </RNMarker>
+        </>
+      )}
 
       {/* Render Me marker */}
       {typeof safeLat === "number" && typeof safeLng === "number" && (

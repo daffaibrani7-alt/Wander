@@ -10,7 +10,7 @@ import {
   Animated,
 } from "react-native";
 import { BlurView } from "expo-blur";
-import { X, Award, Flame, Navigation, Users, Calendar } from "lucide-react-native";
+import { X, Award, Flame, Navigation, Users, Calendar, Play } from "lucide-react-native";
 import Svg, { Circle } from "react-native-svg";
 import { COLORS } from "../theme/colors";
 import { useThemeStore } from "../store/useThemeStore";
@@ -39,7 +39,7 @@ export function ExplorationDashboard({ visible, onClose }: ExplorationDashboardP
     leaderboard,
   } = useGamificationStore();
 
-  const { totalVisitedCount, exploredPercent } = useExplorationStore();
+  const { totalVisitedCount, exploredPercent, startReplay, coordinateHistory } = useExplorationStore();
 
   // Slide drawer animation
   const slideAnim = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
@@ -293,7 +293,7 @@ export function ExplorationDashboard({ visible, onClose }: ExplorationDashboardP
         {/* ── SECTION 4: EXPLORATION MEMORIES TIMELINE ── */}
         <Text style={[styles.sectionTitle, { color: textColor }]}>📅 MEMORI PERJALANAN</Text>
         <View style={styles.timelineList}>
-          {memories.map((memory) => (
+        {memories.map((memory, idx) => (
             <View key={memory.id} style={[styles.timelineCard, { borderColor: glassBorder, backgroundColor: isDark ? "rgba(255,255,255,0.01)" : "rgba(0,0,0,0.01)" }]}>
               <View style={styles.timelineCardHeader}>
                 <View style={styles.timelineDayIndicator}>
@@ -312,6 +312,28 @@ export function ExplorationDashboard({ visible, onClose }: ExplorationDashboardP
               <Text style={[styles.timelineDesc, { color: labelColor }]}>
                 {memory.description}
               </Text>
+
+              {/* Replay Journey button — only first card gets it (today's session) */}
+              {idx === 0 && coordinateHistory.length >= 2 && (
+                <Pressable
+                  id={`replay-journey-btn-${memory.id}`}
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+                    startReplay();
+                    onClose();
+                  }}
+                  style={[
+                    styles.replayBtn,
+                    {
+                      backgroundColor: isDark ? "rgba(91, 79, 241, 0.18)" : "rgba(91, 79, 241, 0.1)",
+                      borderColor: isDark ? "rgba(91, 79, 241, 0.45)" : "rgba(91, 79, 241, 0.3)",
+                    },
+                  ]}
+                >
+                  <Play size={12} color={COLORS.purple} fill={COLORS.purple} />
+                  <Text style={[styles.replayBtnText, { color: COLORS.purple }]}>Putar Ulang Perjalanan</Text>
+                </Pressable>
+              )}
             </View>
           ))}
         </View>
@@ -653,5 +675,21 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: "600",
     lineHeight: 14,
+  },
+  replayBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 10,
+    alignSelf: "flex-start",
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  replayBtnText: {
+    fontSize: 10.5,
+    fontWeight: "800",
+    letterSpacing: 0.2,
   },
 });

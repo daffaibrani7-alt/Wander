@@ -16,6 +16,12 @@ export const TILE_SIZE = 0.0003;
 // Reference tile counts representing a dense local exploration zone (e.g., 2500 tiles for 1.5km x 1.5km)
 const REF_TILES_TOTAL = 2500;
 
+export interface ReplayCoordinate {
+  latitude: number;
+  longitude: number;
+  timestamp: number;
+}
+
 interface ExplorationStateStore {
   isExplorationActive: boolean;
   exploredTiles: Set<string>;
@@ -23,12 +29,19 @@ interface ExplorationStateStore {
   totalVisitedCount: number;
   exploredPercent: number;
 
+  // Journey replay
+  coordinateHistory: ReplayCoordinate[];
+  isReplaying: boolean;
+  replayCoordinates: ReplayCoordinate[];
+
   // Actions
   toggleExplorationMode: () => void;
   setExplorationMode: (active: boolean) => void;
   trackPosition: (latitude: number, longitude: number) => Promise<boolean>;
   initializeExplorationListener: (userId: string) => () => void;
   clearExplorationData: (userId: string) => Promise<void>;
+  startReplay: () => void;
+  stopReplay: () => void;
 }
 
 // Throttling database sync to Firestore (3 seconds cache window)
@@ -67,6 +80,9 @@ async function syncTilesToFirestoreThrottled(userId: string, tiles: string[]) {
   }, 3000);
 }
 
+// Maximum coordinate history ring-buffer (battery-safe; no raw GPS flood)
+const MAX_HISTORY = 500;
+
 export const useExplorationStore = create<ExplorationStateStore>((set, get) => {
   return {
     isExplorationActive: false,
@@ -74,6 +90,10 @@ export const useExplorationStore = create<ExplorationStateStore>((set, get) => {
     exploredTilesArray: [],
     totalVisitedCount: 0,
     exploredPercent: 0,
+
+    coordinateHistory: [],
+    isReplaying: false,
+    replayCoordinates: [],
 
     toggleExplorationMode: () => {
       Haptics.selectionAsync().catch(() => {});
@@ -84,7 +104,33 @@ export const useExplorationStore = create<ExplorationStateStore>((set, get) => {
       set({ isExplorationActive: active });
     },
 
+    startReplay: () => {
+      const { coordinateHistory } = get();
+      if (coordinateHistory.length < 2) return;
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+      set({ isReplaying: true, replayCoordinates: [...coordinateHistory] });
+    },
+
+    stopReplay: () => {
+      Haptics.selectionAsync().catch(() => {});
+      set({ isReplaying: false, replayCoordinates: [] });
+    },
+
     trackPosition: async (lat, lng) => {
+      // Record into coordinate history ring-buffer (throttled: 1 point per ~15m movement)
+      const history = get().coordinateHistory;
+      const last = history[history.length - 1];
+      const shouldAppend =
+        !last ||
+        Math.abs(lat - last.latitude) > 0.000135 ||
+        Math.abs(lng - last.longitude) > 0.000135;
+      if (shouldAppend) {
+        const newPoint: ReplayCoordinate = { latitude: lat, longitude: lng, timestamp: Date.now() };
+        const newHistory = history.length >= MAX_HISTORY
+          ? [...history.slice(1), newPoint]
+          : [...history, newPoint];
+        set({ coordinateHistory: newHistory });
+      }
       const latIdx = Math.floor(lat / TILE_SIZE);
       const lngIdx = Math.floor(lng / TILE_SIZE);
       const tileKey = `${latIdx}_${lngIdx}`;

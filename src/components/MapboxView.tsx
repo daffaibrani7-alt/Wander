@@ -15,7 +15,7 @@ import { View, Text, StyleSheet, Animated, Easing } from "react-native";
 import { COLORS } from "../theme/colors";
 import { MapMarker } from "./MapMarker";
 import { FriendLocation } from "../services/mockService";
-import { useExplorationStore, TILE_SIZE } from "../store/useExplorationStore";
+import { useExplorationStore, TILE_SIZE, ReplayCoordinate } from "../store/useExplorationStore";
 import { useGamificationStore } from "../store/useGamificationStore";
 import { getClusteredNodes, ClusterNode } from "../utils/clustering";
 import * as Haptics from "expo-haptics";
@@ -631,6 +631,79 @@ const MapboxViewComponent = forwardRef<MapboxViewRef, MapboxViewProps>(
       };
     }, [leafletLoaded, isExplorationActive, exploredFrequencies, exploredTilesArray]);
 
+    // ─── EFFECT #6: JOURNEY REPLAY POLYLINE + PULSING BEACON ────────────────
+    const isReplaying = useExplorationStore((s) => s.isReplaying);
+    const replayCoordinates = useExplorationStore((s) => s.replayCoordinates);
+    const replayLayersRef = useRef<any[]>([]);
+
+    useEffect(() => {
+      if (!leafletLoaded || !mapRef.current) return;
+      const L = (window as any).L;
+      if (!L) return;
+
+      // Clean up previous replay layers
+      replayLayersRef.current.forEach((layer) => layer.remove());
+      replayLayersRef.current = [];
+
+      if (!isReplaying || replayCoordinates.length < 2) return;
+
+      // Draw glowing polyline
+      const latlngs = replayCoordinates.map((c: ReplayCoordinate) => [c.latitude, c.longitude]);
+      const polyline = L.polyline(latlngs, {
+        color: "#8A3FFC",
+        weight: 3.5,
+        opacity: 0.9,
+        lineJoin: "round",
+        lineCap: "round",
+        className: "replay-polyline",
+      }).addTo(mapRef.current);
+      replayLayersRef.current.push(polyline);
+
+      // Draw start marker (green dot)
+      const startCoord = replayCoordinates[0];
+      const startMarker = L.circleMarker([startCoord.latitude, startCoord.longitude], {
+        radius: 6,
+        color: "#2BE080",
+        fillColor: "#2BE080",
+        fillOpacity: 1,
+        weight: 2,
+      }).addTo(mapRef.current);
+      replayLayersRef.current.push(startMarker);
+
+      // Draw pulsing beacon at the head (last point)
+      const headCoord = replayCoordinates[replayCoordinates.length - 1];
+      const beaconHtml = `
+        <div style="position:relative;width:20px;height:20px;display:flex;align-items:center;justify-content:center;">
+          <div style="
+            position:absolute;
+            width:20px;height:20px;
+            border-radius:50%;
+            background:rgba(138,63,252,0.35);
+            animation:replayPulse 1.4s ease-out infinite;
+          "></div>
+          <div style="
+            width:10px;height:10px;
+            border-radius:50%;
+            background:#8A3FFC;
+            border:2px solid #fff;
+            box-shadow:0 0 8px #8A3FFC;
+          "></div>
+        </div>
+      `;
+      const beacon = L.marker([headCoord.latitude, headCoord.longitude], {
+        icon: L.divIcon({ html: beaconHtml, className: "replay-beacon", iconSize: [20, 20], iconAnchor: [10, 10] }),
+      }).addTo(mapRef.current);
+      replayLayersRef.current.push(beacon);
+
+      // Fly to replay path
+      mapRef.current.fitBounds(polyline.getBounds(), { padding: [60, 60], animate: true, duration: 1.0 });
+
+      return () => {
+        replayLayersRef.current.forEach((layer) => layer.remove());
+        replayLayersRef.current = [];
+      };
+    }, [leafletLoaded, isReplaying, replayCoordinates]);
+
     // Concentric-ring radar placeholder while Leaflet assets are downloading from CDN
     const rings = [
       useRef(new Animated.Value(0)).current,
@@ -753,6 +826,17 @@ const MapboxViewComponent = forwardRef<MapboxViewRef, MapboxViewProps>(
             .unlocked-grid-cell-hot {
               filter: drop-shadow(0 0 7px #2BE080);
               transition: opacity 0.4s ease-in-out;
+            }
+            .replay-polyline {
+              filter: drop-shadow(0 0 4px #8A3FFC);
+            }
+            .replay-beacon {
+              background: transparent !important;
+              border: none !important;
+            }
+            @keyframes replayPulse {
+              0%   { transform: scale(0.6); opacity: 0.85; }
+              100% { transform: scale(2.6); opacity: 0; }
             }
           `}
         </style>

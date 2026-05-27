@@ -59,6 +59,10 @@ import { useGamificationStore } from "../../src/store/useGamificationStore";
 import { ExplorationDashboard } from "../../src/components/ExplorationDashboard";
 import { useNetworkStore } from "../../src/store/useNetworkStore";
 import { useSyncQueueStore } from "../../src/store/useSyncQueueStore";
+import { LocationConsentModal } from "../../src/components/LocationConsentModal";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+
+const CONSENT_KEY = "wander_location_consent";
 
 
 type GhostModeType = "precise" | "blurry" | "frozen";
@@ -99,6 +103,12 @@ export default function HomeMapScreen() {
   // Offline/Sync Banner Animation
   const bannerAnim = useRef(new Animated.Value(0)).current;
 
+  // Location Consent Modal state
+  const [showConsentModal, setShowConsentModal] = useState(false);
+
+  // Replay HUD animation
+  const replayHudAnim = useRef(new Animated.Value(0)).current;
+
   // Saved Places & Notification Center panel states
   const [showSavedPlaces, setShowSavedPlaces] = useState(false);
   const [showNotifCenter, setShowNotifCenter] = useState(false);
@@ -133,6 +143,9 @@ export default function HomeMapScreen() {
     toggleExplorationMode,
     trackPosition,
     initializeExplorationListener,
+    isReplaying,
+    stopReplay,
+    coordinateHistory,
   } = useExplorationStore();
 
   // Gamification Zustand Store
@@ -285,6 +298,26 @@ export default function HomeMapScreen() {
     () => friends.find((f) => f.uid === selectedFriendUid) ?? null,
     [friends, selectedFriendUid]
   );
+
+  // Check location consent on first mount — show modal if not yet granted
+  useEffect(() => {
+    AsyncStorage.getItem(CONSENT_KEY).then((val) => {
+      if (!val) {
+        // Delay slightly to let the map render first
+        setTimeout(() => setShowConsentModal(true), 800);
+      }
+    }).catch(() => {});
+  }, []);
+
+  // Replay HUD spring in/out
+  useEffect(() => {
+    Animated.spring(replayHudAnim, {
+      toValue: isReplaying ? 1 : 0,
+      tension: 65,
+      friction: 10,
+      useNativeDriver: true,
+    }).start();
+  }, [isReplaying]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Mulai pelacakan lokasi foreground/background saat mount
   useEffect(() => {
@@ -930,6 +963,79 @@ export default function HomeMapScreen() {
 
       {/* ── Exploration Achievements Dashboard Panel ── */}
       <ExplorationDashboard visible={isDashboardActive} onClose={toggleDashboard} />
+
+      {/* ── Journey Replay Controller HUD ── */}
+      <Animated.View
+        pointerEvents={isReplaying ? "auto" : "none"}
+        style={[
+          styles.replayHud,
+          {
+            opacity: replayHudAnim,
+            transform: [
+              {
+                translateY: replayHudAnim.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [80, 0],
+                }),
+              },
+              {
+                scale: replayHudAnim.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [0.85, 1],
+                }),
+              },
+            ],
+          },
+        ]}
+      >
+        <BlurView
+          intensity={85}
+          tint={isDark ? "dark" : "light"}
+          style={[
+            styles.replayHudBlur,
+            {
+              borderColor: "rgba(138, 63, 252, 0.5)",
+            },
+          ]}
+        >
+          <View style={styles.replayHudContent}>
+            {/* Pulsing purple dot */}
+            <View style={styles.replayDot} />
+            <View style={styles.replayHudTextBlock}>
+              <Text style={[styles.replayHudLabel, { color: COLORS.purple }]}>REPLAY AKTIF</Text>
+              <Text style={[styles.replayHudSub, { color: theme.textMuted }]}>
+                {coordinateHistory.length} titik • Jalur hari ini
+              </Text>
+            </View>
+            <Pressable
+              id="stop-replay-btn"
+              onPress={stopReplay}
+              style={styles.stopReplayBtn}
+            >
+              <Text style={styles.stopReplayBtnText}>✕ Hentikan</Text>
+            </Pressable>
+          </View>
+        </BlurView>
+      </Animated.View>
+
+      {/* ── Location Consent Modal ── */}
+      <LocationConsentModal
+        visible={showConsentModal}
+        onAllowAlways={() => {
+          AsyncStorage.setItem(CONSENT_KEY, "always").catch(() => {});
+          setShowConsentModal(false);
+          startTracking();
+        }}
+        onAllowOnce={() => {
+          AsyncStorage.setItem(CONSENT_KEY, "once").catch(() => {});
+          setShowConsentModal(false);
+          startTracking();
+        }}
+        onDeny={() => {
+          AsyncStorage.setItem(CONSENT_KEY, "denied").catch(() => {});
+          setShowConsentModal(false);
+        }}
+      />
 
       {/* ── Floating Live Activity Widget Card (Unlocked view) ── */}
       {activeActivity && !isLockScreenSimulated && !isMapPickMode && (
@@ -1649,6 +1755,64 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "600",
     letterSpacing: 0.5,
+  },
+
+  // ── Replay Controller HUD ────────────────────────────────────────────────
+  replayHud: {
+    position: "absolute",
+    bottom: Platform.OS === "ios" ? 110 : 90,
+    left: 20,
+    right: 20,
+    zIndex: 300,
+  },
+  replayHudBlur: {
+    borderRadius: 20,
+    borderWidth: 1,
+    overflow: "hidden",
+  },
+  replayHudContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    gap: 12,
+  },
+  replayDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: COLORS.purple,
+    shadowColor: COLORS.purple,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.9,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  replayHudTextBlock: {
+    flex: 1,
+  },
+  replayHudLabel: {
+    fontSize: 11,
+    fontWeight: "900",
+    letterSpacing: 0.8,
+  },
+  replayHudSub: {
+    fontSize: 11,
+    fontWeight: "500",
+    marginTop: 1,
+  },
+  stopReplayBtn: {
+    backgroundColor: "rgba(138, 63, 252, 0.18)",
+    borderRadius: 10,
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: "rgba(138, 63, 252, 0.5)",
+  },
+  stopReplayBtnText: {
+    color: COLORS.purple,
+    fontSize: 11.5,
+    fontWeight: "700",
   },
 });
 
