@@ -6,6 +6,7 @@ import "@/features/map/services/locationService";
 import { useThemeStore } from "@/features/settings/store/useThemeStore";
 import { useAuthStore } from "@/features/auth/store/useAuthStore";
 import { COLORS } from "@/shared/theme/colors";
+import { ErrorBoundary } from "@/shared/components/ErrorBoundary";
 
 export default function RootLayout() {
   const isDark = useThemeStore((state) => state.isDark);
@@ -19,21 +20,23 @@ export default function RootLayout() {
   }, []);
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.bg }]}>
-      <StatusBar style={isDark ? "light" : "dark"} animated />
-      <Stack
-        screenOptions={{
-          headerShown: false,
-          animation: "fade_from_bottom",
-          contentStyle: { backgroundColor: theme.bg },
-        }}
-      >
-        <Stack.Screen name="index" />
-        <Stack.Screen name="splash" />
-        <Stack.Screen name="login" />
-        <Stack.Screen name="(tabs)" options={{ gestureEnabled: false }} />
-      </Stack>
-    </View>
+    <ErrorBoundary>
+      <View style={[styles.container, { backgroundColor: theme.bg }]}>
+        <StatusBar style={isDark ? "light" : "dark"} animated />
+        <Stack
+          screenOptions={{
+            headerShown: false,
+            animation: "fade_from_bottom",
+            contentStyle: { backgroundColor: theme.bg },
+          }}
+        >
+          <Stack.Screen name="index" />
+          <Stack.Screen name="splash" />
+          <Stack.Screen name="login" />
+          <Stack.Screen name="(tabs)" options={{ gestureEnabled: false }} />
+        </Stack>
+      </View>
+    </ErrorBoundary>
   );
 }
 

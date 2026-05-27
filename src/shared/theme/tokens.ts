@@ -4,6 +4,8 @@ import { TYPOGRAPHY } from "./typography";
 import { RADIUS } from "./radius";
 import { SHADOWS } from "./shadows";
 import { ANIMATIONS } from "./animations";
+import { ZINDEX } from "./zIndex";
+import { BLUR } from "./blur";
 
 export const THEME = {
   colors: COLORS,
@@ -12,4 +14,6 @@ export const THEME = {
   radius: RADIUS,
   shadows: SHADOWS,
   animations: ANIMATIONS,
+  zIndex: ZINDEX,
+  blur: BLUR,
 };
