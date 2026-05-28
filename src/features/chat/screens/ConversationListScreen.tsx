@@ -323,10 +323,9 @@ function EmptyState() {
       <View style={emptyStyles.iconContainer}>
         <MessageCircle size={48} color={COLORS.purple} strokeWidth={1.5} />
       </View>
-      <Text style={emptyStyles.title}>No Messages Yet</Text>
+      <Text style={emptyStyles.title}>Keheningan Sebelum Cerita</Text>
       <Text style={emptyStyles.subtitle}>
-        Start chatting with your exploration friends!{"\n"}
-        Go to the Teman tab to find people.
+        Langkah terjauh sekalipun berawal dari sapaan hangat. Mari bagikan memori penjelajahan Anda atau kirimkan Buzz manis ke teman untuk memulai cerita baru.
       </Text>
     </View>
   );
@@ -448,10 +447,10 @@ export function ConversationListScreen({ onOpenConversation }: ConversationListS
 function HeaderContent({ theme }: { theme: ReturnType<typeof COLORS.get> }) {
   return (
     <View style={styles.headerInner}>
-      <Text style={[styles.headerTitle, { color: theme.text }]}>Messages</Text>
+      <Text style={[styles.headerTitle, { color: theme.text }]}>Percakapan Kita</Text>
       <View style={[styles.searchBar, { backgroundColor: theme.inputBg }]}>
         <Search size={16} color="rgba(255,255,255,0.3)" strokeWidth={2} />
-        <Text style={styles.searchPlaceholder}>Search conversations...</Text>
+        <Text style={styles.searchPlaceholder}>Cari percakapan...</Text>
       </View>
     </View>
   );

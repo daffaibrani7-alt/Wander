@@ -751,9 +751,9 @@ export default function HomeMapScreen() {
               ]}
             />
             <Text style={[styles.offlineBannerText, { color: theme.text }]}>
-              {!isOnline && "⚠️ Mode Luring Aktif — Bekerja Offline"}
-              {isOnline && syncStatus === "syncing" && `📡 Menyinkronkan data tertunda... (${queue.length})`}
-              {isOnline && syncStatus === "synced" && "✅ Semua data telah tersinkronisasi!"}
+              {!isOnline && "⚠️ Menjelajah dalam keheningan luring — Jejak langkah Anda tetap terjaga"}
+              {isOnline && syncStatus === "syncing" && `📡 Mengalirkan kenangan petualangan Anda... (${queue.length})`}
+              {isOnline && syncStatus === "synced" && "✨ Jejak petualangan Anda telah abadi di awan!"}
             </Text>
           </View>
         </BlurView>
@@ -1294,9 +1294,9 @@ export default function HomeMapScreen() {
               {selectedFriend.geofence && (
                 <View style={[styles.statusPill, { backgroundColor: "rgba(0, 240, 255, 0.12)", borderColor: COLORS.cyan + "50" }]}>
                   <Text style={[styles.statusTextPill, { color: COLORS.cyan }]}>
-                    {selectedFriend.geofence === "home" && "🏡 Di Rumah"}
-                    {selectedFriend.geofence === "work" && "💼 Di Kantor"}
-                    {selectedFriend.geofence === "school" && "🏫 Di Sekolah"}
+                    {selectedFriend.geofence === "home" && "🏡 Bersantai di Rumah"}
+                    {selectedFriend.geofence === "work" && "💼 Berkarya di Kantor"}
+                    {selectedFriend.geofence === "school" && "🏫 Menuntut Ilmu"}
                   </Text>
                 </View>
               )}
@@ -1321,10 +1321,10 @@ export default function HomeMapScreen() {
                            "#2BE080"
                   }
                 ]}>
-                  {selectedFriend.activity === "driving" && "🚗 Sedang Menyetir"}
-                  {selectedFriend.activity === "sleeping" && "😴 Sedang Tidur"}
-                  {selectedFriend.activity === "idle" && "⏳ Diam di Tempat"}
-                  {selectedFriend.activity === "online" && "🟢 Sedang Aktif"}
+                  {selectedFriend.activity === "driving" && "🚗 Menelusuri Jalanan"}
+                  {selectedFriend.activity === "sleeping" && "😴 Sedang Beristirahat"}
+                  {selectedFriend.activity === "idle" && "⏳ Menikmati Suasana"}
+                  {selectedFriend.activity === "online" && "🟢 Sedang Terjaga"}
                 </Text>
               </View>
 
@@ -1346,14 +1346,14 @@ export default function HomeMapScreen() {
             {selectedFriend.geofence && (
               <View style={styles.radiusSelector}>
                 <Text style={[styles.radiusTitle, { color: theme.textMuted }]}>
-                  📍 STATUS LOKASI GEOPENCE
+                  ✨ DETAK KEHADIRAN
                 </Text>
                 <GlassCard style={{ flexDirection: "row", alignItems: "center", paddingVertical: 10, paddingHorizontal: 14 }} tier="light">
                   <Text style={{ fontSize: 16, marginRight: 8 }}>
                     {selectedFriend.geofence === "home" ? "🏡" : selectedFriend.geofence === "work" ? "💼" : selectedFriend.geofence === "school" ? "🏫" : "📍"}
                   </Text>
                   <Text style={[styles.statusTextPill, { color: theme.text, fontSize: 12 }]}>
-                    Sedang berada di {selectedFriend.geofence === "home" ? "Rumah" : selectedFriend.geofence === "work" ? "Kantor" : selectedFriend.geofence === "school" ? "Sekolah" : "Kawasan Favorit"}
+                    Sedang berada di {selectedFriend.geofence === "home" ? "Rumah untuk beristirahat" : selectedFriend.geofence === "work" ? "Kantor untuk berkarya" : selectedFriend.geofence === "school" ? "Sekolah untuk belajar" : "Kawasan Favorit"}
                   </Text>
                 </GlassCard>
               </View>

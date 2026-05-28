@@ -69,9 +69,9 @@ export default function FriendsScreen() {
 
       {/* Header */}
       <View style={styles.header}>
-        <Text style={[styles.title, { color: theme.text }]}>Teman & Kontak 👥</Text>
+        <Text style={[styles.title, { color: theme.text }]}>Radar Kehadiran Teman 👥</Text>
         <Text style={[styles.subtitle, { color: theme.textMuted }]}>
-          Kelola kontak dan temukan koneksi baru untuk radar sosial Anda.
+          Hubungkan langkah Anda dengan orang terdekat dan mulailah saling terhubung secara tenang.
         </Text>
       </View>
 
@@ -131,7 +131,7 @@ export default function FriendsScreen() {
           <GlassCard style={styles.emptyCard}>
             <Users size={32} color={theme.textMuted} />
             <Text style={[styles.emptyText, { color: theme.textMuted }]}>
-              Tidak ada teman yang cocok dengan pencarian Anda. Ketik nama untuk menambahkan!
+              Belum ada teman di radar Anda. Mulailah perjalanan berdua dengan mengetik nama teman di atas untuk menghubungkan radar sosial Anda!
             </Text>
           </GlassCard>
         ) : (

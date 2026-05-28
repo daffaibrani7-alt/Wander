@@ -21,6 +21,7 @@ import { useMemoryStore, MemoryCard } from "@/features/exploration/store/useMemo
 import { WANDER_HAPTICS } from "@/shared/theme/haptics";
 import { COLORS } from "@/shared/theme/colors";
 import { BlurView } from "expo-blur";
+import { GlassCard } from "@/shared/components/GlassCard";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const CARD_WIDTH = SCREEN_WIDTH * 0.82;
@@ -181,7 +182,45 @@ export function MemoryCardCarousel({
     );
   };
 
-  if (memories.length === 0) return null;
+  if (memories.length === 0) {
+    return (
+      <View style={styles.container}>
+        <View style={styles.header}>
+          <Text style={[styles.sectionTitle, { color: isDark ? "#ffffff" : "#121216" }]}>
+            Kenangan Perjalanan Anda ✨
+          </Text>
+          <Text style={[styles.sectionSubtitle, { color: isDark ? "rgba(255,255,255,0.5)" : "rgba(0,0,0,0.5)" }]}>
+            Momen spasial yang dirangkai otomatis dari langkah Anda
+          </Text>
+        </View>
+        <View style={styles.emptyContainer}>
+          <GlassCard style={styles.emptyCard} tier="medium">
+            <Text style={styles.emptyEmoji}>👣</Text>
+            <Text style={[styles.emptyTitle, { color: isDark ? "#ffffff" : "#121216" }]}>
+              Petualangan Pertama Anda Menanti
+            </Text>
+            <Text style={[styles.emptyDesc, { color: isDark ? "rgba(255,255,255,0.6)" : "rgba(0,0,0,0.6)" }]}>
+              Setiap sudut jalan menyimpan cerita baru. Melangkah keluar bersama teman, buka kabut peta, dan biarkan AI merangkai jejak memori Anda di sini secara otomatis.
+            </Text>
+            <Pressable
+              onPress={() => {
+                WANDER_HAPTICS.medium();
+              }}
+              style={({ pressed }) => [
+                styles.emptyBtn,
+                {
+                  backgroundColor: COLORS.purple,
+                  transform: [{ scale: pressed ? 0.96 : 1.0 }],
+                },
+              ]}
+            >
+              <Text style={styles.emptyBtnText}>Jelajahi Peta Sekarang 🧭</Text>
+            </Pressable>
+          </GlassCard>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -303,5 +342,54 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: "700",
     color: "#fff",
+  },
+  emptyContainer: {
+    paddingHorizontal: 20,
+    alignItems: "center",
+  },
+  emptyCard: {
+    width: "100%",
+    borderRadius: 24,
+    padding: 20,
+    alignItems: "center",
+  },
+  emptyEmoji: {
+    fontSize: 32,
+    marginBottom: 10,
+  },
+  emptyTitle: {
+    fontSize: 16,
+    fontWeight: "900",
+    textAlign: "center",
+    marginBottom: 6,
+    letterSpacing: -0.2,
+    fontFamily: "System",
+  },
+  emptyDesc: {
+    fontSize: 12,
+    lineHeight: 18,
+    textAlign: "center",
+    marginBottom: 16,
+    fontWeight: "500",
+    paddingHorizontal: 10,
+    fontFamily: "System",
+  },
+  emptyBtn: {
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: COLORS.purple,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  emptyBtnText: {
+    color: "#ffffff",
+    fontSize: 12,
+    fontWeight: "900",
+    fontFamily: "System",
   },
 });
