@@ -30,7 +30,9 @@ import {
   Smartphone,
   Compass,
   Award,
+  Sliders,
 } from "lucide-react-native";
+import { ZINDEX } from "@/shared/theme/zIndex";
 import { COLORS } from "@/shared/theme/colors";
 import { GlassCard } from "@/shared/components/GlassCard";
 import { MapMarker } from "@/features/map/components/MapMarker";
@@ -125,6 +127,63 @@ export default function HomeMapScreen() {
   const [isMapPickMode, setMapPickMode] = useState(false);
   const [pickedCoords, setPickedCoords] = useState<{ latitude: number; longitude: number } | null>(null);
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const [sheetState, setSheetState] = useState<"peek" | "expanded">("peek");
+
+  // Utilities Dock state and animation
+  const [showUtilities, setShowUtilities] = useState(false);
+  const utilitiesAnim = useRef(new Animated.Value(0)).current;
+
+  const toggleUtilities = useCallback(() => {
+    Haptics.selectionAsync().catch(() => {});
+    if (showUtilities) {
+      Animated.timing(utilitiesAnim, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }).start(() => {
+        setShowUtilities(false);
+      });
+    } else {
+      setShowUtilities(true);
+      Animated.spring(utilitiesAnim, {
+        toValue: 1,
+        tension: 40,
+        friction: 8,
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [showUtilities, utilitiesAnim]);
+
+  // Contextual UI Map Interaction Autohide
+  const overlayOpacity = useRef(new Animated.Value(1)).current;
+  const panTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleMapPan = useCallback(() => {
+    Animated.timing(overlayOpacity, {
+      toValue: 0.08,
+      duration: 180,
+      useNativeDriver: true,
+    }).start();
+
+    if (panTimeoutRef.current) {
+      clearTimeout(panTimeoutRef.current);
+    }
+
+    panTimeoutRef.current = setTimeout(() => {
+      Animated.timing(overlayOpacity, {
+        toValue: 1,
+        duration: 300,
+        useNativeDriver: true,
+      }).start();
+    }, 1500);
+  }, [overlayOpacity]);
+
+  // Clean up timer on unmount
+  useEffect(() => {
+    return () => {
+      if (panTimeoutRef.current) clearTimeout(panTimeoutRef.current);
+    };
+  }, []);
 
   const notificationsFeed = useGeofenceStore((s) => s.notificationsFeed);
   const unreadCount = useMemo(() => notificationsFeed.filter((n) => !n.read).length, [notificationsFeed]);
@@ -508,18 +567,32 @@ export default function HomeMapScreen() {
   const handleSelectFriend = (friend: FriendLocation) => {
     Haptics.selectionAsync().catch(() => {});
     setSelectedFriendUid(friend.uid);
+    setSheetState("peek");
     if (friend.latitude && friend.longitude) {
       mapRef.current?.flyTo({ latitude: friend.latitude, longitude: friend.longitude }, 15);
     }
     slideAnim.setValue(height);
-    Animated.spring(slideAnim, { toValue: 0, tension: 28, friction: 8, useNativeDriver: true }).start();
+    Animated.spring(slideAnim, { toValue: 240, tension: 30, friction: 8, useNativeDriver: true }).start();
+  };
+
+  const toggleSheetState = () => {
+    Haptics.selectionAsync().catch(() => {});
+    const target = sheetState === "peek" ? "expanded" : "peek";
+    setSheetState(target);
+    Animated.spring(slideAnim, {
+      toValue: target === "peek" ? 240 : 0,
+      tension: 30,
+      friction: 8,
+      useNativeDriver: true,
+    }).start();
   };
 
   const handleClosePanel = () => {
     Haptics.selectionAsync().catch(() => {});
-    Animated.timing(slideAnim, { toValue: height, duration: 240, useNativeDriver: true }).start(() =>
-      setSelectedFriendUid(null)
-    );
+    Animated.timing(slideAnim, { toValue: height, duration: 240, useNativeDriver: true }).start(() => {
+      setSelectedFriendUid(null);
+      setSheetState("peek");
+    });
   };
 
   // ── Search animation ──────────────────────────────────────────────────────
@@ -700,7 +773,10 @@ export default function HomeMapScreen() {
         userActivity={selfActivity}
         userGeofence={regions.find((r) => r.isInside)?.type}
         followUser={followUser}
-        onMapPan={() => setFollowUser(false)}
+        onMapPan={() => {
+          setFollowUser(false);
+          handleMapPan();
+        }}
         onMapPress={(coords) => {
           if (isMapPickMode) {
             setPickedCoords(coords);
@@ -710,7 +786,7 @@ export default function HomeMapScreen() {
       />
 
       {/* ── Top floating bar ── */}
-      <View style={styles.topBar} pointerEvents="box-none">
+      <Animated.View style={[styles.topBar, { opacity: overlayOpacity }]} pointerEvents="box-none">
         {/* Profile / Ghost mode button */}
         <Animated.View style={{ transform: [{ scale: profilePulse }] }}>
           <Pressable
@@ -797,7 +873,7 @@ export default function HomeMapScreen() {
             )}
           </Pressable>
         </Animated.View>
-      </View>
+      </Animated.View>
 
       {/* ── Ghost Mode Picker ── */}
       <Animated.View
@@ -862,7 +938,7 @@ export default function HomeMapScreen() {
 
       {/* ── Right-side Floating Action Controls ── */}
       {!isMapPickMode && (
-        <View style={styles.rightSideControls} pointerEvents="box-none">
+        <Animated.View style={[styles.rightSideControls, { opacity: overlayOpacity }]} pointerEvents="box-none">
           {/* Notifications Bell button */}
           <Pressable
             id="notifications-bell-button"
@@ -904,40 +980,13 @@ export default function HomeMapScreen() {
             <MapPin size={20} color={showSavedPlaces ? COLORS.cyan : theme.text} />
           </Pressable>
 
-          {/* Lock Screen Simulator Toggle button */}
-          <Pressable
-            id="lock-screen-toggle-button"
-            onPress={toggleLockScreenSimulation}
-            style={[
-              styles.floatingActionBtn,
-              {
-                backgroundColor: isDark ? "rgba(18, 18, 22, 0.9)" : "rgba(255, 255, 255, 0.92)",
-                borderColor: isLockScreenSimulated ? COLORS.purple + "66" : theme.border,
-              },
-            ]}
-          >
-            <Lock size={20} color={isLockScreenSimulated ? COLORS.purple : theme.text} />
-          </Pressable>
-
-          {/* Widget Simulator Toggle button */}
-          <Pressable
-            id="widget-simulator-toggle-button"
-            onPress={toggleWidgetSimulator}
-            style={[
-              styles.floatingActionBtn,
-              {
-                backgroundColor: isDark ? "rgba(18, 18, 22, 0.9)" : "rgba(255, 255, 255, 0.92)",
-                borderColor: isWidgetSimulatorActive ? COLORS.cyan + "66" : theme.border,
-              },
-            ]}
-          >
-            <Smartphone size={20} color={isWidgetSimulatorActive ? COLORS.cyan : theme.text} />
-          </Pressable>
-
           {/* Exploration Mode Toggle button */}
           <Pressable
             id="exploration-mode-toggle-button"
-            onPress={toggleExplorationMode}
+            onPress={() => {
+              Haptics.selectionAsync().catch(() => {});
+              toggleExplorationMode();
+            }}
             style={[
               styles.floatingActionBtn,
               {
@@ -949,21 +998,92 @@ export default function HomeMapScreen() {
             <Compass size={20} color={isExplorationActive ? COLORS.green : theme.text} />
           </Pressable>
 
-          {/* Exploration Achievements Dashboard button */}
-          <Pressable
-            id="exploration-achievements-dashboard-button"
-            onPress={toggleDashboard}
-            style={[
-              styles.floatingActionBtn,
-              {
-                backgroundColor: isDark ? "rgba(18, 18, 22, 0.9)" : "rgba(255, 255, 255, 0.92)",
-                borderColor: isDashboardActive ? COLORS.cyan + "66" : theme.border,
-              },
-            ]}
-          >
-            <Award size={20} color={isDashboardActive ? COLORS.cyan : theme.text} />
-          </Pressable>
-        </View>
+          {/* Expandable Utilities Menu button */}
+          <View style={styles.utilitiesMenuContainer} pointerEvents="box-none">
+            <Pressable
+              id="utilities-menu-toggle-button"
+              onPress={toggleUtilities}
+              style={[
+                styles.floatingActionBtn,
+                {
+                  backgroundColor: isDark ? "rgba(18, 18, 22, 0.9)" : "rgba(255, 255, 255, 0.92)",
+                  borderColor: showUtilities ? COLORS.cyan + "66" : theme.border,
+                },
+              ]}
+            >
+              <Sliders size={20} color={showUtilities ? COLORS.cyan : theme.text} />
+            </Pressable>
+
+            {/* Slide-out sub-dock */}
+            {showUtilities && (
+              <Animated.View
+                style={[
+                  styles.utilitiesShelf,
+                  {
+                    opacity: utilitiesAnim,
+                    transform: [
+                      {
+                        translateX: utilitiesAnim.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [60, 0],
+                        }),
+                      },
+                    ],
+                  },
+                ]}
+                pointerEvents="box-none"
+              >
+                {/* Lock Screen Simulator */}
+                <Pressable
+                  id="lock-screen-toggle-button"
+                  onPress={toggleLockScreenSimulation}
+                  style={[
+                    styles.floatingActionBtn,
+                    styles.shelfBtn,
+                    {
+                      backgroundColor: isDark ? "rgba(18, 18, 22, 0.95)" : "rgba(255, 255, 255, 0.96)",
+                      borderColor: isLockScreenSimulated ? COLORS.purple + "66" : theme.border,
+                    },
+                  ]}
+                >
+                  <Lock size={18} color={isLockScreenSimulated ? COLORS.purple : theme.text} />
+                </Pressable>
+
+                {/* Widget Simulator */}
+                <Pressable
+                  id="widget-simulator-toggle-button"
+                  onPress={toggleWidgetSimulator}
+                  style={[
+                    styles.floatingActionBtn,
+                    styles.shelfBtn,
+                    {
+                      backgroundColor: isDark ? "rgba(18, 18, 22, 0.95)" : "rgba(255, 255, 255, 0.96)",
+                      borderColor: isWidgetSimulatorActive ? COLORS.cyan + "66" : theme.border,
+                    },
+                  ]}
+                >
+                  <Smartphone size={18} color={isWidgetSimulatorActive ? COLORS.cyan : theme.text} />
+                </Pressable>
+
+                {/* Exploration Achievements Dashboard */}
+                <Pressable
+                  id="exploration-achievements-dashboard-button"
+                  onPress={toggleDashboard}
+                  style={[
+                    styles.floatingActionBtn,
+                    styles.shelfBtn,
+                    {
+                      backgroundColor: isDark ? "rgba(18, 18, 22, 0.95)" : "rgba(255, 255, 255, 0.96)",
+                      borderColor: isDashboardActive ? COLORS.cyan + "66" : theme.border,
+                    },
+                  ]}
+                >
+                  <Award size={18} color={isDashboardActive ? COLORS.cyan : theme.text} />
+                </Pressable>
+              </Animated.View>
+            )}
+          </View>
+        </Animated.View>
       )}
 
       {/* ── Saved Places Manager Panel ── */}
@@ -1135,14 +1255,14 @@ export default function HomeMapScreen() {
         <Animated.View
           style={[styles.bottomSheet, { transform: [{ translateY: slideAnim }] }]}
         >
-          <GlassCard style={styles.detailCard}>
+          <GlassCard style={styles.detailCard} tier="solid">
             {/* Drag handle */}
-            <Pressable onPress={handleClosePanel} style={styles.handleWrap} id="close-friend-panel">
-              <View style={[styles.handle, { backgroundColor: isDark ? "rgba(255,255,255,0.2)" : "rgba(0,0,0,0.15)" }]} />
+            <Pressable onPress={toggleSheetState} style={styles.handleWrap} id="toggle-friend-panel-state">
+              <View style={[styles.handle, { backgroundColor: isDark ? "rgba(255,255,255,0.25)" : "rgba(0,0,0,0.15)" }]} />
             </Pressable>
 
-            {/* Friend info */}
-            <View style={styles.friendRow}>
+            {/* Friend info header (press to expand/collapse) */}
+            <Pressable onPress={toggleSheetState} style={styles.friendRow}>
               <View style={[styles.friendAvatarWrap, { shadowColor: selectedFriend.geofence ? COLORS.cyan : COLORS.pink }]}>
                 <Text style={styles.friendEmoji}>{selectedFriend.avatarEmoji}</Text>
                 <View
@@ -1163,10 +1283,10 @@ export default function HomeMapScreen() {
                   🕒 Diperbarui: {selectedFriend.statusText || "Aktif"}
                 </Text>
               </View>
-              <Pressable onPress={handleClosePanel} style={styles.closeBtn}>
+              <Pressable onPress={handleClosePanel} style={styles.closeBtn} id="close-friend-panel">
                 <X size={16} color={theme.textMuted} />
               </Pressable>
-            </View>
+            </Pressable>
 
             {/* Zenly Status Pills */}
             <View style={styles.pillsContainer}>
@@ -1228,7 +1348,7 @@ export default function HomeMapScreen() {
                 <Text style={[styles.radiusTitle, { color: theme.textMuted }]}>
                   📍 STATUS LOKASI GEOPENCE
                 </Text>
-                <GlassCard style={{ flexDirection: "row", alignItems: "center", paddingVertical: 10, paddingHorizontal: 14 }}>
+                <GlassCard style={{ flexDirection: "row", alignItems: "center", paddingVertical: 10, paddingHorizontal: 14 }} tier="light">
                   <Text style={{ fontSize: 16, marginRight: 8 }}>
                     {selectedFriend.geofence === "home" ? "🏡" : selectedFriend.geofence === "work" ? "💼" : selectedFriend.geofence === "school" ? "🏫" : "📍"}
                   </Text>
@@ -1283,20 +1403,24 @@ export default function HomeMapScreen() {
       )}
       {/* ── Premium Spatial Memories Carousel ── */}
       {!selectedFriend && (
-        <MemoryCardCarousel
-          isDark={isDark}
-          onRevisitMemory={(coords) => mapRef.current?.flyTo(coords, 16)}
-        />
+        <Animated.View style={{ opacity: overlayOpacity }}>
+          <MemoryCardCarousel
+            isDark={isDark}
+            onRevisitMemory={(coords) => mapRef.current?.flyTo(coords, 16)}
+          />
+        </Animated.View>
       )}
 
       {/* ── Premium Friend Carousel ── */}
       {!selectedFriend && (
-        <FriendCarousel
-          friends={friends}
-          selectedFriendUid={selectedFriendUid}
-          onFriendSelect={handleSelectFriend}
-          isDark={isDark}
-        />
+        <Animated.View style={{ opacity: overlayOpacity }}>
+          <FriendCarousel
+            friends={friends}
+            selectedFriendUid={selectedFriendUid}
+            onFriendSelect={handleSelectFriend}
+            isDark={isDark}
+          />
+        </Animated.View>
       )}
 
       {/* ── Social Onboarding Wizard Walkthrough ── */}
@@ -1323,7 +1447,7 @@ const styles = StyleSheet.create({
     top: Platform.OS === "ios" ? 55 : 40,
     left: 20,
     right: 20,
-    zIndex: 9999,
+    zIndex: ZINDEX.toasts,
     alignItems: "center",
   },
   offlineBannerBlur: {
@@ -1361,7 +1485,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
-    zIndex: 100,
+    zIndex: ZINDEX.overlays,
   },
   profileBtn: {
     width: 46,
@@ -1435,7 +1559,7 @@ const styles = StyleSheet.create({
     position: "absolute",
     top: Platform.OS === "ios" ? 116 : 102,
     left: 16,
-    zIndex: 200,
+    zIndex: ZINDEX.overlays + 10,
   },
   ghostPickerCard: {
     padding: 12,
@@ -1490,7 +1614,7 @@ const styles = StyleSheet.create({
     top: 0,
     left: 20,
     right: 20,
-    zIndex: 999,
+    zIndex: ZINDEX.toasts,
   },
   alertCard: {
     paddingVertical: 14,
@@ -1511,7 +1635,7 @@ const styles = StyleSheet.create({
     top: Platform.OS === "ios" ? 116 : 102,
     left: 72,
     right: 72,
-    zIndex: 150,
+    zIndex: ZINDEX.overlays + 5,
   },
   searchResultsCard: {
     padding: 8,
@@ -1548,7 +1672,7 @@ const styles = StyleSheet.create({
     bottom: Platform.OS === "ios" ? 110 : 96,
     left: 16,
     right: 16,
-    zIndex: 100,
+    zIndex: ZINDEX.sheets,
   },
   detailCard: {
     paddingTop: 6,
@@ -1634,7 +1758,7 @@ const styles = StyleSheet.create({
     position: "absolute",
     right: 16,
     bottom: Platform.OS === "ios" ? 120 : 106,
-    zIndex: 90,
+    zIndex: ZINDEX.sheets - 10,
   },
   quickAvatarBtn: {
     width: 46,
@@ -1718,7 +1842,7 @@ const styles = StyleSheet.create({
     right: 16,
     flexDirection: "column",
     gap: 12,
-    zIndex: 90,
+    zIndex: ZINDEX.overlays,
   },
   floatingActionBtn: {
     width: 46,
@@ -1760,7 +1884,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    zIndex: 99999,
+    zIndex: ZINDEX.modals,
   },
   lockWallpaper: {
     position: "absolute",
@@ -1816,7 +1940,7 @@ const styles = StyleSheet.create({
     bottom: Platform.OS === "ios" ? 110 : 90,
     left: 20,
     right: 20,
-    zIndex: 300,
+    zIndex: ZINDEX.sheets + 5,
   },
   replayHudBlur: {
     borderRadius: 20,
@@ -1866,6 +1990,23 @@ const styles = StyleSheet.create({
     color: COLORS.purple,
     fontSize: 11.5,
     fontWeight: "700",
+  },
+
+  // ── Expandable Utilities Dock Styles ──────────────────────────────────────
+  utilitiesMenuContainer: {
+    flexDirection: "row-reverse",
+    alignItems: "center",
+    position: "relative",
+  },
+  utilitiesShelf: {
+    flexDirection: "row",
+    gap: 8,
+    marginRight: 10,
+  },
+  shelfBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
   },
 });
 
