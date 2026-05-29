@@ -527,6 +527,103 @@ const replayStyles = StyleSheet.create({
   },
 });
 
+// ─── RadarPulse — animated slow concentric rings ──────────────────────────
+function RadarPulse({ color }: { color: string }) {
+  const pulse1 = useRef(new Animated.Value(0)).current;
+  const pulse2 = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const createAnim = (val: Animated.Value, delay: number) => {
+      return Animated.loop(
+        Animated.sequence([
+          Animated.delay(delay),
+          Animated.timing(val, {
+            toValue: 1,
+            duration: 3500,
+            easing: Easing.inOut(Easing.sin),
+            useNativeDriver: true,
+          }),
+          Animated.timing(val, { toValue: 0, duration: 0, useNativeDriver: true }),
+        ])
+      );
+    };
+
+    const anim1 = createAnim(pulse1, 0);
+    const anim2 = createAnim(pulse2, 1750);
+
+    anim1.start();
+    anim2.start();
+
+    return () => {
+      anim1.stop();
+      anim2.stop();
+    };
+  }, []);
+
+  return (
+    <View style={radarPulseStyles.pulseContainer}>
+      <Animated.View
+        style={[
+          radarPulseStyles.pulseRing,
+          {
+            borderColor: color,
+            transform: [
+              {
+                scale: pulse1.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [0.3, 3.5],
+                }),
+              },
+            ],
+            opacity: pulse1.interpolate({
+              inputRange: [0, 0.8, 1],
+              outputRange: [0.3, 0.1, 0],
+            }),
+          },
+        ]}
+      />
+      <Animated.View
+        style={[
+          radarPulseStyles.pulseRing,
+          {
+            borderColor: color,
+            transform: [
+              {
+                scale: pulse2.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [0.3, 3.5],
+                }),
+              },
+            ],
+            opacity: pulse2.interpolate({
+              inputRange: [0, 0.8, 1],
+              outputRange: [0.3, 0.1, 0],
+            }),
+          },
+        ]}
+      />
+    </View>
+  );
+}
+
+const radarPulseStyles = StyleSheet.create({
+  pulseContainer: {
+    width: 60,
+    height: 60,
+    alignItems: "center",
+    justifyContent: "center",
+    position: "relative",
+  },
+  pulseRing: {
+    position: "absolute",
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    borderWidth: 1.5,
+    backgroundColor: "transparent",
+  },
+});
+
 function FallbackMapView({
   isDark,
   friends,
@@ -770,6 +867,17 @@ function FallbackMapView({
         </>
       )}
 
+      {/* Pulse Radar behind Me in Fallback Map */}
+      {typeof safeLat === "number" && typeof safeLng === "number" && (
+        <RNMarker
+          coordinate={{ latitude: safeLat, longitude: safeLng }}
+          anchor={{ x: 0.5, y: 0.5 }}
+          tracksViewChanges={true}
+        >
+          <RadarPulse color={isDark ? COLORS.cyan : "#0055FF"} />
+        </RNMarker>
+      )}
+
       {/* Render Me marker */}
       {typeof safeLat === "number" && typeof safeLng === "number" && (
         <RNMarker
@@ -1004,6 +1112,17 @@ const MapboxViewComponent = forwardRef<MapboxViewRef, MapboxViewProps>(
             animationDuration={800}
           />
           <UserLocation visible={false} />
+
+          {/* Pulse Radar behind Me in Mapbox Native */}
+          {latitude && longitude && (
+            <MarkerView
+              id="me-radar"
+              coordinate={[longitude, latitude]}
+              anchor={{ x: 0.5, y: 0.5 }}
+            >
+              <RadarPulse color={isDark ? COLORS.cyan : "#0055FF"} />
+            </MarkerView>
+          )}
 
           {/* Render marker kustom pengguna utama (Me) dengan Cyan neon glow */}
           {latitude && longitude && (

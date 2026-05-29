@@ -56,6 +56,14 @@ interface ChatStoreState {
     currentName: string,
     intensity: BuzzIntensity
   ) => Promise<void>;
+  createGroupAction: (
+    currentUid: string,
+    currentProfile: ChatParticipant,
+    participantProfiles: Record<string, ChatParticipant>,
+    groupName: string,
+    groupEmoji: string,
+    groupType: "trip" | "hangout" | "family" | "close" | "exploration"
+  ) => Promise<string>;
   loadMoreMessages: (conversationId: string, currentUid: string) => Promise<void>;
 }
 
@@ -297,6 +305,56 @@ export const useChatStore = create<ChatStoreState>((set, get) => {
       // Add to local state
       set((state) => ({
         conversations: [conversation, ...state.conversations],
+      }));
+
+      return conversation.id;
+    },
+
+    // ── Create a new group social circle ─────────────────────────
+    createGroupAction: async (
+      currentUid,
+      currentProfile,
+      participantProfiles,
+      groupName,
+      groupEmoji,
+      groupType
+    ) => {
+      const participantUids = Object.keys(participantProfiles);
+      
+      // Seed initial mock journey timeline, meetup coordinates, and AI memories
+      const now = new Date();
+      const base = (minAgo: number) => new Date(now.getTime() - minAgo * 60 * 1000).toISOString();
+      
+      const conversation = await chatService.createConversation(
+        participantUids,
+        participantProfiles,
+        "group",
+        groupName
+      );
+
+      // Decorate with circle specifics for simulated spatial HUD features
+      const decoratedConversation: Conversation = {
+        ...conversation,
+        groupEmoji,
+        groupType,
+        coverImage: "cyber",
+        timeline: [
+          { id: `tl-new-1`, user: "You", emoji: "🧭", text: `Created the ${groupName} social circle`, time: "Just now" },
+        ],
+        meetupLocation: {
+          latitude: -6.2088,
+          longitude: 106.8456,
+          placeName: "Wander Active Meetup Node",
+          active: true,
+        },
+        aiMemories: [
+          { id: `am-new-1`, title: `${groupName} Inception`, imageTheme: "sunset", description: "The beginning of a new spatial exploration journey together. AI-generated nostalgia cards will emerge as you explore!" },
+        ],
+      };
+
+      // Add to local state
+      set((state) => ({
+        conversations: [decoratedConversation, ...state.conversations],
       }));
 
       return conversation.id;

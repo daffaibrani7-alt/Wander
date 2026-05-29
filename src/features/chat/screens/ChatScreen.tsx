@@ -15,7 +15,8 @@ import {
   Platform,
 } from "react-native";
 import { BlurView } from "expo-blur";
-import { ChevronLeft, MoreHorizontal } from "lucide-react-native";
+import { ChevronLeft, MoreHorizontal, Compass } from "lucide-react-native";
+import { CircleHubPanel } from "@/features/chat/components/CircleHubPanel";
 import { useChatStore } from "@/features/chat/store/useChatStore";
 import { useAuthStore } from "@/features/auth/store/useAuthStore";
 import { useThemeStore } from "@/features/settings/store/useThemeStore";
@@ -226,6 +227,7 @@ export function ChatScreen({ conversationId, onBack }: ChatScreenProps) {
   const [showBuzz, setShowBuzz] = useState(false);
   const [buzzSender, setBuzzSender] = useState<string | undefined>();
   const [reactionTarget, setReactionTarget] = useState<Message | null>(null);
+  const [isCircleHubVisible, setCircleHubVisible] = useState(false);
   const flatListRef = useRef<FlatList>(null);
 
   // Find conversation
@@ -398,6 +400,16 @@ export function ChatScreen({ conversationId, onBack }: ChatScreenProps) {
         onDismiss={() => setReactionTarget(null)}
       />
 
+      {/* Circle Hub overlay panel */}
+      {conversation && (
+        <CircleHubPanel
+          visible={isCircleHubVisible}
+          onClose={() => setCircleHubVisible(false)}
+          conversation={conversation}
+          isDark={isDark}
+        />
+      )}
+
       {/* Header */}
       <View style={styles.header}>
         {Platform.OS === "ios" ? (
@@ -411,6 +423,8 @@ export function ChatScreen({ conversationId, onBack }: ChatScreenProps) {
               statusLine={statusLine}
               onBack={onBack}
               theme={theme}
+              isGroup={conversation?.type === "group"}
+              onOpenCircleHub={() => setCircleHubVisible(true)}
             />
           </BlurView>
         ) : (
@@ -420,6 +434,8 @@ export function ChatScreen({ conversationId, onBack }: ChatScreenProps) {
               statusLine={statusLine}
               onBack={onBack}
               theme={theme}
+              isGroup={conversation?.type === "group"}
+              onOpenCircleHub={() => setCircleHubVisible(true)}
             />
           </View>
         )}
@@ -459,11 +475,15 @@ function ChatHeader({
   statusLine,
   onBack,
   theme,
+  isGroup,
+  onOpenCircleHub,
 }: {
   displayName: string;
   statusLine: string;
   onBack: () => void;
   theme: ReturnType<typeof COLORS.get>;
+  isGroup: boolean;
+  onOpenCircleHub: () => void;
 }) {
   return (
     <View style={styles.headerInner}>
@@ -472,11 +492,22 @@ function ChatHeader({
       </Pressable>
 
       <View style={styles.headerCenter}>
-        <Text style={[styles.headerName, { color: theme.text }]} numberOfLines={1}>
-          {displayName}
-        </Text>
-        {statusLine.length > 0 && (
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+          <Text style={[styles.headerName, { color: theme.text }]} numberOfLines={1}>
+            {displayName}
+          </Text>
+          {isGroup && (
+            <Pressable onPress={onOpenCircleHub} style={styles.hubHeaderBadge} id="open-circle-hub">
+              <Compass size={11} color={COLORS.cyan} style={{ marginRight: 3 }} />
+              <Text style={styles.hubHeaderBadgeText}>Circle Hub</Text>
+            </Pressable>
+          )}
+        </View>
+        {statusLine.length > 0 && !isGroup && (
           <Text style={styles.headerStatus}>{statusLine}</Text>
+        )}
+        {isGroup && (
+          <Text style={styles.headerStatusGroup}>Ambient Active Session</Text>
         )}
       </View>
 
@@ -539,5 +570,29 @@ const styles = StyleSheet.create({
   messageList: {
     paddingTop: SPACING.md,
     paddingBottom: SPACING.sm,
+  },
+  hubHeaderBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(0, 240, 255, 0.12)",
+    borderRadius: 8,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderWidth: 0.5,
+    borderColor: "rgba(0, 240, 255, 0.25)",
+  },
+  hubHeaderBadgeText: {
+    fontSize: 9,
+    fontWeight: "900",
+    color: COLORS.cyan,
+    textTransform: "uppercase",
+    letterSpacing: 0.2,
+  },
+  headerStatusGroup: {
+    fontSize: 10.5,
+    color: COLORS.cyan,
+    fontWeight: "700",
+    marginTop: 1,
+    letterSpacing: 0.2,
   },
 });

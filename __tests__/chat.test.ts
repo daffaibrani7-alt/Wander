@@ -64,8 +64,8 @@ jest.mock("expo-haptics", () => ({
 
 // ── Imports ───────────────────────────────────────────────────────
 
-import { chatService } from "@/features/chat/services/chatService";
-import type { Conversation, Message, ChatParticipant } from "@/features/chat/types/types";
+import { chatService } from "../src/features/chat/services/chatService";
+import type { Conversation, Message, ChatParticipant } from "../src/features/chat/types/types";
 
 // ── Tests ─────────────────────────────────────────────────────────
 
@@ -156,7 +156,7 @@ describe("Chat Service (Simulation Mode)", () => {
   const testUid = "test-user-123";
 
   test("listenToConversations returns simulated conversations", (done) => {
-    const unsub = chatService.listenToConversations(testUid, (conversations) => {
+    const unsub = chatService.listenToConversations(testUid, (conversations: Conversation[]) => {
       expect(conversations).toBeDefined();
       expect(conversations.length).toBeGreaterThanOrEqual(3);
 
@@ -173,7 +173,7 @@ describe("Chat Service (Simulation Mode)", () => {
   });
 
   test("listenToMessages returns simulated messages for sim-conv-1", (done) => {
-    const unsub = chatService.listenToMessages("sim-conv-1", testUid, (messages) => {
+    const unsub = chatService.listenToMessages("sim-conv-1", testUid, (messages: Message[]) => {
       expect(messages).toBeDefined();
       expect(messages.length).toBeGreaterThanOrEqual(3);
 
@@ -190,8 +190,8 @@ describe("Chat Service (Simulation Mode)", () => {
   });
 
   test("listenToMessages returns buzz message for sim-conv-2", (done) => {
-    const unsub = chatService.listenToMessages("sim-conv-2", testUid, (messages) => {
-      const buzzMsg = messages.find((m) => m.type === "buzz");
+    const unsub = chatService.listenToMessages("sim-conv-2", testUid, (messages: Message[]) => {
+      const buzzMsg = messages.find((m: Message) => m.type === "buzz");
       expect(buzzMsg).toBeDefined();
       expect(buzzMsg?.content).toBe("⚡ BUZZ");
       expect(buzzMsg?.metadata?.buzzIntensity).toBe("normal");

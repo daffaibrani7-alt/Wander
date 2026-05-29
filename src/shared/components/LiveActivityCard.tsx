@@ -261,7 +261,7 @@ export function LiveActivityCard({ activity }: LiveActivityCardProps) {
 const styles = StyleSheet.create({
   cardContainer: {
     position: "absolute",
-    bottom: Platform.OS === "ios" ? 34 : 20,
+    bottom: Platform.OS === "ios" ? 116 : 96,
     left: 16,
     right: 16,
     zIndex: 9999,

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useMemo, useState } from "react";
-import { View, Image, Text, StyleSheet, Animated } from "react-native";
+import { View, Image, Text, StyleSheet, Animated, Easing } from "react-native";
 import { BatteryBadge } from "@/shared/components/BatteryBadge";
 import { ImageCache } from "@/shared/utils/imageCache";
 
@@ -64,12 +64,13 @@ function MapMarkerComponent({
   equippedBadgeEmoji = null,
 }: MapMarkerProps) {
   const scaleAnim = useRef(new Animated.Value(0)).current;
+  const floatAnim = useRef(new Animated.Value(0)).current;
   const [imageError, setImageError] = useState(false);
 
   // Resolve URI synchronously — ImageCache.prefetch() in home.tsx pre-warms this
   const resolvedUri = ImageCache.resolve(avatarUrl);
 
-  // Premium spring bounce on mount — only once
+  // Premium spring bounce on mount & slow floating loop — only once
   useEffect(() => {
     Animated.spring(scaleAnim, {
       toValue: 1,
@@ -77,6 +78,24 @@ function MapMarkerComponent({
       friction: 6,
       useNativeDriver: true,
     }).start();
+
+    // Constant soothing floating animation
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(floatAnim, {
+          toValue: 1,
+          duration: 2000,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+        Animated.timing(floatAnim, {
+          toValue: 0,
+          duration: 2000,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+      ])
+    ).start();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Reset error flag when avatar URL changes
@@ -94,8 +113,13 @@ function MapMarkerComponent({
 
   const showActivityBadge = (geofence || (activity && activity !== "online"));
 
+  const floatY = floatAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, -6],
+  });
+
   return (
-    <Animated.View style={[styles.container, { transform: [{ scale: scaleAnim }] }]}>
+    <Animated.View style={[styles.container, { transform: [{ scale: scaleAnim }, { translateY: floatY }] }]}>
       {/* Outer Glow Ring */}
       <View style={[styles.glowRing, { borderColor: glowColor }]}>
         {/* Avatar Wrapper */}

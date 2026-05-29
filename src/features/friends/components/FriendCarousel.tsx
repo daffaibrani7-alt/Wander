@@ -2,6 +2,7 @@ import React, { memo } from "react";
 import { StyleSheet, Text, View, Pressable, ScrollView, Platform } from "react-native";
 import { BlurView } from "expo-blur";
 import { COLORS } from "@/shared/theme/colors";
+import { WANDER_HAPTICS } from "@/shared/theme/haptics";
 import { FriendLocation } from "@/features/friends/services/mockService";
 import { usePresenceStore } from "@/features/presence/store/usePresenceStore";
 
@@ -12,14 +13,12 @@ interface FriendCarouselProps {
   isDark: boolean;
 }
 
-// ─── Pure helpers (defined outside component — never recreated) ────────────────
-
 function getGlowColor(friend: FriendLocation, activity?: string): string {
-  if (friend.ghostMode === "frozen") return "#8A3FFC";
-  if (friend.ghostMode === "blurry") return "#FF5B99";
+  if (friend.ghostMode === "frozen") return COLORS.purple;
+  if (friend.ghostMode === "blurry") return COLORS.pink;
   if (activity === "driving") return "#FF8A00";
-  if (activity === "sleeping") return "#8A3FFC";
-  return "#2BE080";
+  if (activity === "sleeping") return COLORS.purple;
+  return COLORS.green;
 }
 
 function getActivityEmoji(friend: FriendLocation, activity?: string): string {
@@ -32,18 +31,6 @@ function getActivityEmoji(friend: FriendLocation, activity?: string): string {
   return "🟢";
 }
 
-function getActivityText(friend: FriendLocation, activity?: string): string {
-  if (friend.geofence === "home") return "Rumah";
-  if (friend.geofence === "work") return "Kantor";
-  if (friend.geofence === "school") return "Sekolah";
-  if (activity === "driving") return "Menyetir";
-  if (activity === "sleeping") return "Tidur";
-  if (activity === "idle") return "Diam";
-  return "Aktif";
-}
-
-// ─── Individual card — only re-renders when this friend's data changes ─────────
-
 interface FriendCardProps {
   friend: FriendLocation;
   isSelected: boolean;
@@ -55,30 +42,37 @@ interface FriendCardProps {
 function FriendCardComponent({ friend, isSelected, isDark, activity, onPress }: FriendCardProps) {
   const glowColor = getGlowColor(friend, activity);
   const emoji = getActivityEmoji(friend, activity);
-  const activityText = getActivityText(friend, activity);
 
   const cardContent = (
     <>
-      <View style={[styles.avatarRing, { borderColor: glowColor }]}>
+      <View style={[styles.avatarRing, { borderColor: isSelected ? COLORS.cyan : "rgba(255,255,255,0.06)" }]}>
         <Text style={styles.avatarEmoji}>{friend.avatarEmoji}</Text>
         <View style={[styles.badge, { backgroundColor: glowColor }]}>
           <Text style={styles.badgeEmoji}>{emoji}</Text>
         </View>
       </View>
       <Text
-        style={[styles.friendName, { color: isDark ? "#FFF" : "#000" }]}
+        style={[styles.friendName, { color: isSelected ? COLORS.cyan : isDark ? "#FFF" : "#000" }]}
         numberOfLines={1}
       >
-        {friend.equippedBadgeEmoji ? `${friend.equippedBadgeEmoji} ` : ""}{friend.displayName}
-      </Text>
-      <Text
-        style={[styles.activityText, { color: isDark ? "rgba(255,255,255,0.6)" : "rgba(0,0,0,0.5)" }]}
-        numberOfLines={1}
-      >
-        {activityText}
+        {friend.displayName.split(" ")[0]}
       </Text>
     </>
   );
+
+  const cardBorderColor = isSelected
+    ? COLORS.cyan + "55"
+    : isDark
+    ? "rgba(255, 255, 255, 0.08)"
+    : "rgba(0, 0, 0, 0.06)";
+
+  const cardBgColor = isDark
+    ? isSelected
+      ? "rgba(18, 18, 22, 0.95)"
+      : "rgba(18, 18, 22, 0.72)"
+    : isSelected
+    ? "rgba(255, 255, 255, 0.98)"
+    : "rgba(255, 255, 255, 0.85)";
 
   return (
     <Pressable
@@ -92,9 +86,8 @@ function FriendCardComponent({ friend, isSelected, isDark, activity, onPress }: 
           style={[
             styles.card,
             {
-              backgroundColor: isDark ? "rgba(18, 18, 24, 0.88)" : "rgba(255, 255, 255, 0.92)",
-              borderColor: isSelected ? COLORS.cyan : "rgba(255, 255, 255, 0.1)",
-              shadowColor: isSelected ? COLORS.cyan : "#000",
+              backgroundColor: cardBgColor,
+              borderColor: cardBorderColor,
             },
           ]}
         >
@@ -102,15 +95,13 @@ function FriendCardComponent({ friend, isSelected, isDark, activity, onPress }: 
         </View>
       ) : (
         <BlurView
-          intensity={75}
+          intensity={80}
           tint={isDark ? "dark" : "light"}
           style={[
             styles.card,
             {
-              borderColor: isSelected ? COLORS.cyan : "rgba(255, 255, 255, 0.15)",
-              shadowColor: isSelected ? COLORS.cyan : "#000",
-              shadowRadius: isSelected ? 8 : 4,
-              shadowOpacity: isSelected ? 0.35 : 0.12,
+              backgroundColor: cardBgColor,
+              borderColor: cardBorderColor,
             },
           ]}
         >
@@ -121,7 +112,6 @@ function FriendCardComponent({ friend, isSelected, isDark, activity, onPress }: 
   );
 }
 
-// Custom equality: only re-render if selection, appearance, or activity changed
 const FriendCard = memo(FriendCardComponent, (prev, next) => {
   return (
     prev.isSelected === next.isSelected &&
@@ -136,19 +126,89 @@ const FriendCard = memo(FriendCardComponent, (prev, next) => {
   );
 });
 
-// ─── Carousel container ────────────────────────────────────────────────────────
-
 function FriendCarouselComponent({
   friends,
   selectedFriendUid,
   onFriendSelect,
   isDark,
 }: FriendCarouselProps) {
-  // Subscribe with a granular selector so we only re-render when the whole
-  // presences map is swapped, not on unrelated store field changes
   const friendPresences = usePresenceStore((s) => s.friendPresences);
 
   if (friends.length === 0) return null;
+
+  const isMemoriesSelected = selectedFriendUid === "memories";
+  const memoriesBorderColor = isMemoriesSelected
+    ? COLORS.purple + "aa"
+    : isDark
+    ? "rgba(255, 255, 255, 0.08)"
+    : "rgba(0, 0, 0, 0.06)";
+
+  const memoriesBgColor = isDark
+    ? isMemoriesSelected
+      ? "rgba(138, 63, 252, 0.25)"
+      : "rgba(18, 18, 22, 0.72)"
+    : isMemoriesSelected
+    ? "rgba(138, 63, 252, 0.15)"
+    : "rgba(255, 255, 255, 0.85)";
+
+  const memoriesCard = (
+    <Pressable
+      id="toggle-memories-pill-button"
+      onPress={() => {
+        WANDER_HAPTICS.medium();
+        if (isMemoriesSelected) {
+          onFriendSelect(null as any);
+        } else {
+          onFriendSelect({ uid: "memories", displayName: "Memori", avatarEmoji: "🎞️" } as any);
+        }
+      }}
+      style={styles.cardContainer}
+    >
+      {Platform.OS === "web" ? (
+        <View
+          style={[
+            styles.card,
+            {
+              backgroundColor: memoriesBgColor,
+              borderColor: memoriesBorderColor,
+            },
+          ]}
+        >
+          <View style={[styles.avatarRing, { borderColor: isMemoriesSelected ? COLORS.purple : "rgba(255,255,255,0.06)" }]}>
+            <Text style={styles.avatarEmoji}>🎞️</Text>
+          </View>
+          <Text
+            style={[styles.friendName, { color: isMemoriesSelected ? COLORS.purple : isDark ? "#FFF" : "#000" }]}
+            numberOfLines={1}
+          >
+            Memori
+          </Text>
+        </View>
+      ) : (
+        <BlurView
+          intensity={80}
+          tint={isDark ? "dark" : "light"}
+          style={[
+            styles.card,
+            {
+              backgroundColor: memoriesBgColor,
+              borderColor: memoriesBorderColor,
+            },
+          ]}
+        >
+          <View style={[styles.avatarRing, { borderColor: isMemoriesSelected ? COLORS.purple : "rgba(255,255,255,0.06)" }]}>
+            <Text style={styles.avatarEmoji}>🎞️</Text>
+          </View>
+          <Text
+            style={[styles.friendName, { color: isMemoriesSelected ? COLORS.purple : isDark ? "#FFF" : "#000" }]}
+            numberOfLines={1}
+          >
+            Memori
+          </Text>
+        </BlurView>
+      )}
+    </Pressable>
+  );
 
   return (
     <View style={styles.container} pointerEvents="box-none">
@@ -159,6 +219,8 @@ function FriendCarouselComponent({
         pointerEvents="auto"
         removeClippedSubviews={Platform.OS !== "web"}
       >
+        {memoriesCard}
+
         {friends.map((friend) => {
           const presence = friendPresences[friend.uid];
           const activity = presence?.activity || friend.activity;
@@ -183,79 +245,71 @@ export const FriendCarousel = memo(FriendCarouselComponent, (prev, next) => {
   return (
     prev.isDark === next.isDark &&
     prev.selectedFriendUid === next.selectedFriendUid &&
-    prev.friends === next.friends // referential equality — home.tsx memoizes the list
+    prev.friends === next.friends
   );
 });
 
 const styles = StyleSheet.create({
   container: {
     position: "absolute",
-    bottom: Platform.OS === "ios" ? 116 : 102,
+    top: Platform.OS === "ios" ? 112 : 92,
     left: 0,
     right: 0,
     zIndex: 95,
+    height: 72,
   },
   scrollContent: {
-    paddingHorizontal: 16,
-    paddingVertical: 6,
-    gap: 10,
+    paddingHorizontal: 20,
+    paddingVertical: 4,
+    gap: 8,
   },
   cardContainer: {
-    width: 90,
+    width: 60,
   },
   card: {
-    borderRadius: 20,
+    borderRadius: 16,
     borderWidth: 1,
-    padding: 10,
+    paddingVertical: 6,
+    paddingHorizontal: 4,
     alignItems: "center",
     justifyContent: "center",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.12,
-    shadowRadius: 4,
-    elevation: 4,
-    ...Platform.select({
-      web: { backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)" },
-    }),
+    overflow: "hidden",
   },
   avatarRing: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    borderWidth: 2.5,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 2,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "rgba(255,255,255,0.05)",
+    backgroundColor: "rgba(255,255,255,0.03)",
     position: "relative",
-    marginBottom: 6,
+    marginBottom: 4,
   },
   avatarEmoji: {
-    fontSize: 20,
+    fontSize: 16,
   },
   badge: {
     position: "absolute",
-    top: -6,
-    right: -6,
-    width: 18,
-    height: 18,
-    borderRadius: 9,
+    top: -4,
+    right: -4,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
     borderColor: "#121216",
   },
   badgeEmoji: {
-    fontSize: 9,
+    fontSize: 7,
   },
   friendName: {
-    fontSize: 11,
-    fontWeight: "900",
-    letterSpacing: 0.2,
-    fontFamily: "System",
-  },
-  activityText: {
     fontSize: 9,
     fontWeight: "800",
-    marginTop: 1,
+    letterSpacing: 0.2,
     fontFamily: "System",
+    textAlign: "center",
+    width: "100%",
   },
 });
